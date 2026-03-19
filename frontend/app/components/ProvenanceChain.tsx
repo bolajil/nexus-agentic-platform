@@ -80,8 +80,8 @@ export default function ProvenanceChain({ entries }: { entries: ProvenanceEntry[
 
               {entry.tools_used.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-3">
-                  {entry.tools_used.map(t => (
-                    <span key={t} className="text-[10px] px-2 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-500/20 font-mono">
+                  {entry.tools_used.map((t, i) => (
+                    <span key={`${t}-${i}`} className="text-[10px] px-2 py-0.5 rounded bg-purple-900/30 text-purple-400 border border-purple-500/20 font-mono">
                       {t}
                     </span>
                   ))}
