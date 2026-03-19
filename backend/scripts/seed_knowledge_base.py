@@ -52,7 +52,7 @@ Typical h values:
 Design rule of thumb: For electronics cooling with forced air, target h ≥ 50 W/m²·K.
 For passive (natural convection) designs, use h = 10 W/m²·K as conservative estimate.
 """,
-        "metadata": {"equations": ["Q = h*A*(Ts-Tf)"], "keywords": ["convection", "cooling", "heat flux"]},
+        "metadata": {"equations": "Q = h*A*(Ts-Tf)", "keywords": "convection, cooling, heat flux"},
     },
     {
         "title": "Fourier's Law of Heat Conduction",
@@ -86,7 +86,7 @@ For parallel paths: 1/R_total = 1/R_1 + 1/R_2 + ... (parallel)
 
 Design guideline: Minimize thermal resistance by maximizing k and A, and minimizing L.
 """,
-        "metadata": {"equations": ["Q = k*A*dT/L", "R = L/(k*A)"], "keywords": ["conduction", "thermal resistance", "conductivity"]},
+        "metadata": {"equations": "Q = k*A*dT/L, R = L/(k*A)", "keywords": "conduction, thermal resistance, conductivity"},
     },
     {
         "title": "Fin Efficiency and Extended Surface Heat Transfer",
@@ -123,7 +123,7 @@ Typical fin efficiency target: η_f > 0.85 for good designs
 
 Rule of thumb: Increasing fin count beyond η_f < 0.7 gives diminishing returns.
 """,
-        "metadata": {"equations": ["eta_f = tanh(mL)/(mL)", "m = sqrt(h*P/(k*Ac))"], "keywords": ["fins", "heat sink", "extended surface"]},
+        "metadata": {"equations": "eta_f = tanh(mL)/(mL), m = sqrt(h*P/(k*Ac))", "keywords": "fins, heat sink, extended surface"},
     },
     {
         "title": "Thermal Resistance Network — System Level Analysis",
@@ -157,7 +157,7 @@ For forced air cooling:
 
 Design flow: Calculate total θ_ja → check T_j → iterate h or A if T_j > limit.
 """,
-        "metadata": {"equations": ["T_j = T_a + P*theta_ja", "theta_ja = theta_jc + theta_cs + theta_sa"], "keywords": ["thermal resistance", "junction temperature", "electronics cooling"]},
+        "metadata": {"equations": "T_j = T_a + P*theta_ja, theta_ja = theta_jc + theta_cs + theta_sa", "keywords": "thermal resistance, junction temperature, electronics cooling"},
     },
 
     # ── Propulsion ─────────────────────────────────────────────────────────────
@@ -194,7 +194,7 @@ Power:
 
 Thrust-to-weight ratio (TWR) for launch vehicle: TWR > 1.3 required for liftoff.
 """,
-        "metadata": {"equations": ["dv = Isp*g0*ln(m0/mf)", "F = mdot*ve"], "keywords": ["rocket", "delta-v", "specific impulse", "thrust"]},
+        "metadata": {"equations": "dv = Isp*g0*ln(m0/mf), F = mdot*ve", "keywords": "rocket, delta-v, specific impulse, thrust"},
     },
     {
         "title": "Nozzle Design — De Laval Nozzle Theory",
@@ -225,7 +225,7 @@ Under-expanded: p_e > p_a → expansion waves at exit
 Design guideline: For vacuum operation, maximize A_e/A_t (expansion ratio ε) to increase I_sp.
 Typical ε: 6–20 for upper stages, 40–200 for vacuum engines.
 """,
-        "metadata": {"equations": ["A/A* = (1/M)*[...]", "ve = sqrt(2*gamma/(gamma-1)*R*Tc/Mmol*[...])"], "keywords": ["nozzle", "Mach number", "isentropic", "expansion ratio"]},
+        "metadata": {"equations": "A/A* = (1/M)*[...], ve = sqrt(2*gamma/(gamma-1)*R*Tc/Mmol*[...])", "keywords": "nozzle, Mach number, isentropic, expansion ratio"},
     },
 
     # ── Structural ─────────────────────────────────────────────────────────────
@@ -269,7 +269,7 @@ Material yield strengths:
 
 Design target: n ≥ 1.5 for static, n ≥ 2.0 for fatigue-critical components.
 """,
-        "metadata": {"equations": ["sigma = F/A", "sigma_vm = sqrt(sx^2-sx*sy+sy^2+3*txy^2)"], "keywords": ["stress", "safety factor", "von mises", "yield"]},
+        "metadata": {"equations": "sigma = F/A, sigma_vm = sqrt(sx^2-sx*sy+sy^2+3*txy^2)", "keywords": "stress, safety factor, von mises, yield"},
     },
 
     # ── Electronics Cooling ────────────────────────────────────────────────────
@@ -313,7 +313,7 @@ Convection coefficient from Nusselt number:
 Target: ΔT_air < 10–15°C for most electronic systems.
 Component junction temp budget: ΔT_ja = ΔT_air + ΔT_heat-sink + ΔT_TIM + ΔT_jc
 """,
-        "metadata": {"equations": ["V_dot = Q/(rho*cp*dT)", "Nu = 0.023*Re^0.8*Pr^0.4"], "keywords": ["forced convection", "airflow", "electronics thermal", "Nusselt"]},
+        "metadata": {"equations": "V_dot = Q/(rho*cp*dT), Nu = 0.023*Re^0.8*Pr^0.4", "keywords": "forced convection, airflow, electronics thermal, Nusselt"},
     },
     {
         "title": "Heat Pipe Technology — Operating Principles and Limits",
@@ -350,7 +350,7 @@ Wick materials: copper mesh (K ≈ 5×10⁻¹⁰ m²), sintered copper, grooves
 Design guideline: Heat pipes can transfer 10–100× more heat than solid copper rods
 of equivalent cross-section. Use for spreading heat from point sources.
 """,
-        "metadata": {"keywords": ["heat pipe", "two-phase", "capillary limit", "wick"]},
+        "metadata": {"keywords": "heat pipe, two-phase, capillary limit, wick"},
     },
 ]
 

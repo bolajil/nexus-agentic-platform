@@ -58,14 +58,11 @@ async def run_report_agent(state: "AgentState", config: "Settings") -> dict[str,
     logger.info(f"[{state['session_id']}] Report Agent starting — compiling final report")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.2,
-            openai_api_key=config.OPENAI_API_KEY,
-        )
+        llm = create_llm(config, temperature=0.2)
+        _cb = get_callbacks(config, state["session_id"], "report_agent")
 
         requirements = state.get("requirements", {})
         research_results = state.get("research_results", {})
@@ -102,7 +99,7 @@ Return ONLY the JSON object — no markdown fences, no explanation outside the J
             ),
         ]
 
-        response = await llm.ainvoke(messages)
+        response = await llm.ainvoke(messages, config={"callbacks": _cb})
         raw_text = response.content.strip()
 
         # Strip markdown code fences if present

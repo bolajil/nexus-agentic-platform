@@ -7,6 +7,7 @@ const NAV = [
   { href: '/',           label: 'Mission Control', icon: '⬡' },
   { href: '/sessions',   label: 'Sessions',         icon: '◈' },
   { href: '/knowledge',  label: 'Knowledge Base',   icon: '◉' },
+  { href: '/tools',      label: 'Tool Connections', icon: '⚙' },
   { href: '/provenance', label: 'Provenance',        icon: '◎' },
   { href: '/docs',       label: 'Architecture',      icon: '◇' },
 ];
@@ -62,12 +63,26 @@ export default function Sidebar() {
       </nav>
 
       {/* Footer */}
-      <div className="px-4 py-4 border-t border-[#2a2a4a]">
+      <div className="px-4 py-4 border-t border-[#2a2a4a] space-y-3">
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
           <span className="text-xs text-slate-500">System Online</span>
         </div>
-        <div className="text-[10px] text-slate-600 mt-1">v1.0.0 · LangGraph 0.2</div>
+        <div className="text-[10px] text-slate-600">v1.0.0 · LangGraph 0.2</div>
+        {/* Security status */}
+        <div className="rounded-lg border border-emerald-500/20 bg-emerald-950/20 px-3 py-2">
+          <div className="flex items-center gap-1.5 mb-1">
+            <span className="text-emerald-400 text-[11px]">🔒</span>
+            <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider">Secured</span>
+          </div>
+          <div className="space-y-0.5">
+            {['Rate limiting', 'Security headers', 'CSP enforced', 'Prompt guard'].map(f => (
+              <div key={f} className="flex items-center gap-1.5 text-[9px] text-slate-500">
+                <span className="text-emerald-500">✓</span>{f}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </aside>
   );

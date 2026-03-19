@@ -82,6 +82,8 @@ Built as a portfolio showcase for the **Senior AI Engineer – Agentic Platform 
 | **ChromaDB** | 0.5.23 | Vector knowledge base (RAG) |
 | **Redis** | 7 | Session persistence (7-day TTL) |
 | **NumPy + SciPy** | 2.x / 1.14 | Physics simulation + optimisation |
+| **Langfuse** | 3.7.0 | LLM observability — traces every agent + LLM call |
+| **slowapi** | 0.1.9 | Rate limiting (100 req/min per IP) |
 | **structlog** | 24.4 | Structured JSON logging |
 | **OpenTelemetry** | 1.28 | Distributed tracing (OTLP) |
 | **Pydantic v2** | 2.10 | Request/response validation + typed agent state |
@@ -346,7 +348,7 @@ The `SSEQueue` is an `asyncio.Queue` bridging the background pipeline task to th
 
 ## Knowledge Base
 
-The Research Agent searches 8 built-in engineering reference documents across 4 domains:
+The Research Agent searches 9 built-in engineering reference documents across 4 domains:
 
 | Domain | Documents |
 |---|---|
@@ -463,11 +465,41 @@ python scripts/seed_knowledge_base.py
 | `CORS_ORIGINS` | No | `["http://localhost:3002"]` | Allowed CORS origins |
 | `APP_ENV` | No | `development` | Environment label |
 | `LOG_LEVEL` | No | `INFO` | Logging verbosity |
+| `LANGFUSE_PUBLIC_KEY` | No | — | Langfuse project public key |
+| `LANGFUSE_SECRET_KEY` | No | — | Langfuse project secret key |
+| `LANGFUSE_HOST` | No | `https://cloud.langfuse.com` | Langfuse instance URL |
+| `OTEL_ENABLED` | No | `false` | Enable OpenTelemetry export |
 | `OTLP_ENDPOINT` | No | `http://localhost:4317` | OpenTelemetry collector |
 
 ---
 
 ## Observability
+
+### Langfuse LLM Tracing (v3)
+Every pipeline run is traced end-to-end in [Langfuse](https://cloud.langfuse.com):
+- **Root span:** `nexus-pipeline` — covers the full 6-agent run, tagged with `session_id` and `user_id`
+- **Agent spans:** `agent:requirements` → `agent:report` — one span per agent with confidence score, duration, and tools used
+- **LLM generations:** each `ainvoke` call is automatically captured via `langfuse.langchain.CallbackHandler`
+- **User tracking:** frontend generates a persistent `userId` in `localStorage` → sent as `X-User-ID` header → stored on every Langfuse span
+
+Diagnose the connection at runtime:
+```bash
+curl http://localhost:8003/api/v1/langfuse/status
+# → {"auth_check":"OK","span_sent":true,"langfuse_module":"3.7.0"}
+```
+
+### Security
+All responses include hardened HTTP headers:
+```
+Strict-Transport-Security: max-age=31536000; includeSubDomains
+X-Frame-Options: DENY
+X-Content-Type-Options: nosniff
+Content-Security-Policy: default-src 'self'; ...
+Permissions-Policy: geolocation=(), microphone=(), camera=()
+```
+- Rate limiting: 100 requests/minute per IP (slowapi)
+- Prompt injection guard: `sanitise_brief()` strips control characters, enforces 20–4000 char limit
+- Security badge visible in the sidebar UI
 
 ### Structured Logging (structlog)
 Every log line is JSON with `session_id`, `agent_name`, and `trace_id`:
@@ -479,6 +511,7 @@ Every log line is JSON with `session_id`, `agent_name`, and `trace_id`:
 - FastAPI auto-instrumentation captures every request as a span
 - Custom spans wrap each agent node with `agent_name`, `confidence_score`, `token_usage` attributes
 - Compatible with Jaeger, Grafana Tempo, AWS X-Ray via OTLP exporter
+- Disabled by default (`OTEL_ENABLED=false`); enable by setting `OTEL_ENABLED=true` + `OTLP_ENDPOINT`
 
 ### Health Endpoints
 ```bash
@@ -515,11 +548,14 @@ This platform was built to demonstrate production-grade AI engineering for a **S
 | Multi-agent orchestration | LangGraph StateGraph, 6 specialist agents, conditional routing |
 | Distributed systems | Redis session persistence, async pipeline, horizontal-scale design |
 | LLM integration | GPT-4o / GPT-4o-mini, tool calling, structured output parsing |
-| Memory, context, provenance | ChromaDB RAG, 7-entry provenance chain, full audit trail |
-| Observability | structlog JSON, OpenTelemetry OTLP, health/ready probes |
-| Physics simulation | NumPy/SciPy domain solvers (thermal, propulsion, structural) |
+| Memory, context, provenance | ChromaDB RAG, 9-entry knowledge base, full provenance audit trail |
+| LLM Observability | Langfuse v3 — root pipeline span + per-agent spans + LLM generation traces |
+| User tracking | Persistent `userId` (localStorage) propagated through headers to Langfuse |
+| Security | Rate limiting, HSTS, CSP, X-Frame-Options, prompt injection guard |
+| Physics simulation | NumPy/SciPy domain solvers (thermal, propulsion, structural, electronics) |
 | Secure execution | Non-root Docker, per-session isolated state, typed agent boundaries |
 | Real-time systems | SSE streaming, asyncio task concurrency, SSEQueue bridge |
+| Load testing | Locust test suite — weighted tasks, P95 latency, RPS reporting |
 | Documentation | 7 architecture guide files + inline code comments at every decision |
 
 ### Architecture Guide

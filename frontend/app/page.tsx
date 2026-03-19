@@ -1,8 +1,9 @@
 'use client';
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './components/Sidebar';
 import AgentPipeline, { AgentStep, AgentStatus } from './components/AgentPipeline';
+import DesignDiagram from './components/DesignDiagram';
 
 const AGENT_META: Record<string, { label: string; subtitle: string; icon: string }> = {
   requirements: { label: 'Requirements Engineer', subtitle: 'Parses brief → domain, constraints, targets', icon: '📋' },
@@ -36,8 +37,20 @@ export default function MissionControl() {
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [report, setReport] = useState<Record<string, string> | null>(null);
+  const [sessionData, setSessionData] = useState<Record<string, unknown> | null>(null);
   const [events, setEvents] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const userIdRef = useRef<string>('');
+
+  // Persist a stable user ID across sessions for Langfuse user tracking
+  useEffect(() => {
+    let uid = localStorage.getItem('nexus_user_id');
+    if (!uid) {
+      uid = 'user-' + crypto.randomUUID();
+      localStorage.setItem('nexus_user_id', uid);
+    }
+    userIdRef.current = uid;
+  }, []);
 
   const updateStep = useCallback((agentId: string, patch: Partial<AgentStep>) => {
     setSteps(prev => prev.map(s => s.id === agentId ? { ...s, ...patch } : s));
@@ -49,6 +62,7 @@ export default function MissionControl() {
     // Reset state
     setSteps(makeSteps());
     setReport(null);
+    setSessionData(null);
     setEvents([]);
     setRunning(true);
     setSessionId(null);
@@ -58,7 +72,10 @@ export default function MissionControl() {
     try {
       const res = await fetch('/api/sessions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          ...(userIdRef.current ? { 'X-User-ID': userIdRef.current } : {}),
+        },
         body: JSON.stringify({
           engineering_brief: brief,
           session_name: sessionName || undefined,
@@ -110,9 +127,9 @@ export default function MissionControl() {
             }
 
             if (type === 'session_complete' && content?.status === 'complete') {
-              // Fetch full session to get report
               const sdata = await fetch(`/api/sessions/${event.session_id || sid}`).then(r => r.json());
               if (sdata?.report) setReport(sdata.report);
+              if (sdata) setSessionData(sdata);
             }
           } catch {}
         }
@@ -355,6 +372,24 @@ export default function MissionControl() {
               )}
             </AnimatePresence>
 
+            {/* Design Diagram — appears after pipeline completes */}
+            <AnimatePresence>
+              {sessionData && (
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 }}
+                >
+                  <DesignDiagram
+                    domain={(sessionData.requirements as Record<string, unknown>)?.domain as string}
+                    designParams={sessionData.design_params as Record<string, unknown>}
+                    simResults={sessionData.simulation_results as Record<string, unknown>}
+                    optimizedParams={sessionData.optimized_params as Record<string, unknown>}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+
             {/* Architecture info card */}
             {!running && !report && (
               <motion.div
@@ -372,6 +407,8 @@ export default function MissionControl() {
                     { label: 'Session Store',  value: 'Redis / In-Memory',      color: 'text-cyan-400'   },
                     { label: 'Streaming',      value: 'Server-Sent Events',     color: 'text-teal-400'   },
                     { label: 'Provenance',     value: 'Full audit trail',       color: 'text-emerald-400'},
+                    { label: 'Observability',  value: 'Langfuse tracing',       color: 'text-amber-400'  },
+                    { label: 'Security',       value: 'Rate limit · CSP · HSTS',color: 'text-rose-400'   },
                   ].map(item => (
                     <div key={item.label} className="bg-[#0a0a1a] rounded-lg p-3 border border-[#2a2a4a]">
                       <div className="text-slate-600 mb-1">{item.label}</div>

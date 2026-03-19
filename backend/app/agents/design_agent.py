@@ -58,15 +58,12 @@ async def run_design_agent(state: "AgentState", config: "Settings") -> dict[str,
     logger.info(f"[{state['session_id']}] Design Agent starting")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         from app.tools.calculator_tool import CALCULATOR_TOOLS
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.1,
-            openai_api_key=config.OPENAI_API_KEY,
-        ).bind_tools(CALCULATOR_TOOLS)
+        llm = create_llm(config, temperature=0.1).bind_tools(CALCULATOR_TOOLS)
+        _cb = get_callbacks(config, state["session_id"], "design_agent")
 
         requirements = state.get("requirements", {})
         research_results = state.get("research_results", {})
@@ -86,7 +83,7 @@ async def run_design_agent(state: "AgentState", config: "Settings") -> dict[str,
         # Agentic loop — LLM can call tools then continue
         max_iterations = 5
         for iteration in range(max_iterations):
-            response = await llm.ainvoke(messages)
+            response = await llm.ainvoke(messages, config={"callbacks": _cb})
             messages.append(response)
 
             if not response.tool_calls:

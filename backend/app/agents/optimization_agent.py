@@ -57,15 +57,12 @@ async def run_optimization_agent(state: "AgentState", config: "Settings") -> dic
     logger.info(f"[{state['session_id']}] Optimization Agent starting")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         from app.tools.simulation_tool import SIMULATION_TOOLS
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.15,
-            openai_api_key=config.OPENAI_API_KEY,
-        ).bind_tools(SIMULATION_TOOLS)
+        llm = create_llm(config, temperature=0.15).bind_tools(SIMULATION_TOOLS)
+        _cb = get_callbacks(config, state["session_id"], "optimization_agent")
 
         requirements = state.get("requirements", {})
         design_params = state.get("design_params", {})
@@ -119,7 +116,7 @@ Focus on finding genuine improvements backed by simulation results."""
         # Agentic optimization loop
         max_iterations = 6
         for iteration in range(max_iterations):
-            response = await llm.ainvoke(messages)
+            response = await llm.ainvoke(messages, config={"callbacks": _cb})
             messages.append(response)
 
             if not response.tool_calls:

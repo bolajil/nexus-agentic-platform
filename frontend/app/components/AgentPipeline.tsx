@@ -108,8 +108,8 @@ export default function AgentPipeline({ steps }: { steps: AgentStep[] }) {
               {/* Tools used */}
               {step.tools_used && step.tools_used.length > 0 && step.status === 'complete' && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {step.tools_used.map(t => (
-                    <span key={t} className="text-[10px] px-2 py-0.5 rounded-full bg-[#1e1e38] text-slate-400 border border-[#2a2a4a] font-mono">
+                  {step.tools_used.map((t, i) => (
+                    <span key={`${t}-${i}`} className="text-[10px] px-2 py-0.5 rounded-full bg-[#1e1e38] text-slate-400 border border-[#2a2a4a] font-mono">
                       {t}
                     </span>
                   ))}

@@ -47,15 +47,12 @@ async def run_research_agent(state: "AgentState", config: "Settings") -> dict[st
     logger.info(f"[{state['session_id']}] Research Agent starting")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         from app.tools.rag_tool import search_engineering_knowledge
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.2,
-            openai_api_key=config.OPENAI_API_KEY,
-        )
+        llm = create_llm(config, temperature=0.2)
+        _cb = get_callbacks(config, state["session_id"], "research_agent")
 
         requirements = state.get("requirements", {})
         domain = requirements.get("domain", "heat_transfer")
@@ -114,7 +111,7 @@ Format as clear, actionable engineering guidance for the Design Agent."""
             ),
         ]
 
-        response = await llm.ainvoke(synthesis_messages)
+        response = await llm.ainvoke(synthesis_messages, config={"callbacks": _cb})
         synthesis_text = response.content
 
         # Extract formulas mentioned in the synthesis

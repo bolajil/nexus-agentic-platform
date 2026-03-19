@@ -87,7 +87,10 @@ async def lifespan(app: FastAPI):
     # ── OpenTelemetry ─────────────────────────────────────────────────
     try:
         from app.core.telemetry import setup_telemetry
-        setup_telemetry(settings.app_name, settings.otlp_endpoint)
+        setup_telemetry(
+            enabled=getattr(settings, 'OTEL_ENABLED', False),
+            endpoint=settings.otlp_endpoint,
+        )
         logger.info("OpenTelemetry tracing initialized")
     except Exception as e:
         logger.debug(f"Telemetry not available: {e}")
@@ -97,6 +100,11 @@ async def lifespan(app: FastAPI):
 
     # ── Shutdown ──────────────────────────────────────────────────────
     logger.info("NEXUS Platform shutting down gracefully")
+    try:
+        from app.core.llm_factory import flush_langfuse
+        flush_langfuse()
+    except Exception:
+        pass
 
 
 # ── FastAPI App ───────────────────────────────────────────────────────────────
@@ -117,6 +125,13 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
+    # ── Security (rate limiter + API key) ─────────────────────────────
+    try:
+        from app.core.security import setup_rate_limiter
+        setup_rate_limiter(app)
+    except Exception as e:
+        logger.warning(f"Rate limiter setup failed: {e}")
+
     # ── Middleware ─────────────────────────────────────────────────────
     app.add_middleware(GZipMiddleware, minimum_size=1000)
 
@@ -128,6 +143,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
         expose_headers=["X-Session-ID"],
     )
+
+    # Security headers on every response
+    from starlette.middleware.base import BaseHTTPMiddleware
+    from app.core.security import add_security_headers
+    app.add_middleware(BaseHTTPMiddleware, dispatch=add_security_headers)
 
     # Request timing middleware
     @app.middleware("http")
@@ -158,6 +178,13 @@ def create_app() -> FastAPI:
         logger.info("Documents upload router registered")
     except Exception as e:
         logger.warning(f"Documents router unavailable: {e}")
+
+    try:
+        from app.routers.tools import router as tools_router
+        app.include_router(tools_router, prefix="/api/v1")
+        logger.info("Tool connections router registered")
+    except Exception as e:
+        logger.warning(f"Tools router unavailable: {e}")
 
     # ── Global Exception Handlers ──────────────────────────────────────
     @app.exception_handler(Exception)

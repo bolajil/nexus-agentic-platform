@@ -13,6 +13,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
+from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -23,7 +24,7 @@ from app.models.schemas import DocumentIngestion, KnowledgeStats
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
-_vector_store: VectorStoreManager | None = None
+_vector_store: Optional[VectorStoreManager] = None
 
 
 def get_vector_store(settings: Settings = Depends(get_settings)) -> VectorStoreManager:
@@ -61,10 +62,10 @@ async def ingest_document(
 @router.post("/search")
 async def search_knowledge(
     query: str,
-    domain: str | None = None,
+    domain: Optional[str] = None,
     top_k: int = 5,
     store: VectorStoreManager = Depends(get_vector_store),
-) -> list[dict]:
+) -> List[Dict]:
     """
     Semantic search over the engineering knowledge base.
     Optionally filter by domain (heat_transfer, propulsion, structural, etc.)

@@ -52,14 +52,11 @@ async def run_requirements_agent(state: "AgentState", config: "Settings") -> dic
     logger.info(f"[{state['session_id']}] Requirements Agent starting")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.1,
-            openai_api_key=config.OPENAI_API_KEY,
-        )
+        llm = create_llm(config, temperature=0.1)
+        _cb = get_callbacks(config, state["session_id"], "requirements_agent")
 
         engineering_brief = state.get("engineering_brief", state.get("messages", [{}])[0] if state.get("messages") else "")
         if isinstance(engineering_brief, list):
@@ -82,7 +79,7 @@ Return ONLY the JSON object described in your instructions. No markdown, no expl
             ),
         ]
 
-        response = await llm.ainvoke(messages)
+        response = await llm.ainvoke(messages, config={"callbacks": _cb})
         raw_text = response.content.strip()
 
         # Strip markdown code fences if present
@@ -94,12 +91,33 @@ Return ONLY the JSON object described in your instructions. No markdown, no expl
 
         parsed = json.loads(raw_text)
 
+        domain = parsed.get("domain", "heat_transfer")
+        raw_targets = parsed.get("performance_targets", {})
+
+        # Strip non-numeric values — downstream agents require float-compatible targets
+        numeric_targets = {}
+        for k, v in raw_targets.items():
+            try:
+                numeric_targets[k] = float(v)
+            except (TypeError, ValueError):
+                pass  # discard strings like "maximize" or "> 100"
+
+        # Inject domain defaults so simulation/optimization always have something to work with
+        if not numeric_targets:
+            _defaults = {
+                "propulsion":         {"thrust_N": 500.0, "Isp_s": 280.0, "chamber_pressure_Pa": 3e6},
+                "heat_transfer":      {"thermal_load_W": 5000.0, "effectiveness": 0.8},
+                "structural":         {"applied_force_N": 10000.0, "safety_factor_target": 2.5},
+                "electronics_cooling":{"power_W": 200.0, "max_junction_temp_C": 85.0},
+            }
+            numeric_targets = _defaults.get(domain, {})
+
         # Build requirements dict
         requirements = {
-            "domain": parsed.get("domain", "heat_transfer"),
+            "domain": domain,
             "primary_objective": parsed.get("primary_objective", ""),
             "constraints": parsed.get("constraints", []),
-            "performance_targets": parsed.get("performance_targets", {}),
+            "performance_targets": numeric_targets,
             "materials": parsed.get("materials", []),
             "operating_conditions": parsed.get("operating_conditions", {}),
             "raw_brief": engineering_brief,

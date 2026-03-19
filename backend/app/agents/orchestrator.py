@@ -23,7 +23,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 from typing_extensions import TypedDict
 
@@ -148,7 +148,51 @@ class NEXUSOrchestrator:
         self.config = config
         self.session_store = session_store
         self._graph = None
+        self._lf = None          # Langfuse client (lazy-initialised)
         self._build_graph()
+
+    def _get_langfuse(self):
+        """Lazily initialise and return the Langfuse v3 client."""
+        if self._lf is not None:
+            return self._lf
+        pk = getattr(self.config, 'LANGFUSE_PUBLIC_KEY', None)
+        sk = getattr(self.config, 'LANGFUSE_SECRET_KEY', None)
+        if not (pk and sk):
+            return None
+        try:
+            from langfuse import Langfuse  # type: ignore
+            self._lf = Langfuse(
+                public_key=pk,
+                secret_key=sk,
+                host=getattr(self.config, 'LANGFUSE_HOST', 'https://cloud.langfuse.com'),
+            )
+            logger.info("Langfuse tracking enabled")
+        except Exception as exc:
+            logger.warning(f"Langfuse init failed: {exc}")
+        return self._lf
+
+    def _lf_span(self, lf, name: str, session_id: str, metadata: dict = None):
+        """Create a Langfuse span, returning None if lf is unavailable."""
+        if lf is None:
+            return None
+        try:
+            return lf.start_span(
+                name=name,
+                metadata={"session_id": session_id, **(metadata or {})},
+            )
+        except Exception:
+            return None
+
+    def _lf_end_span(self, span, output: dict = None, error: str = None):
+        """End a Langfuse span with output/error metadata."""
+        if span is None:
+            return
+        try:
+            if output or error:
+                span.update(output=output or {"error": error})
+            span.end()
+        except Exception:
+            pass
 
     def _build_graph(self) -> None:
         """
@@ -241,6 +285,7 @@ class NEXUSOrchestrator:
         self,
         initial_state: AgentState,
         sse_queue: SSEQueue,
+        user_id: str = None,
     ) -> AgentState:
         """
         Execute the full 6-agent pipeline, streaming SSE events at each step.
@@ -252,36 +297,64 @@ class NEXUSOrchestrator:
         Both modes emit identical SSE events so the frontend is unaffected.
         """
         session_id = initial_state.get("session_id", "unknown")
+        brief = initial_state.get("engineering_brief", "")
+        user_id = user_id or session_id
+
+        # ── Langfuse root span for the entire pipeline ─────────────────────────
+        lf = self._get_langfuse()
+        pipeline_span = self._lf_span(lf, "nexus-pipeline", session_id, {
+            "brief_preview": brief[:200],
+            "mode": "langgraph" if self._graph else "sequential",
+            "user_id": user_id,
+        })
 
         try:
             if self._graph is not None:
                 final_state = await self._run_with_langgraph(
-                    initial_state, sse_queue, session_id
+                    initial_state, sse_queue, session_id, lf, user_id
                 )
             else:
                 final_state = await self._run_sequential_fallback(
-                    initial_state, sse_queue, session_id
+                    initial_state, sse_queue, session_id, lf, user_id
                 )
 
             # Persist completed session
             if self.session_store and not final_state.get("error"):
                 await self._persist_session(final_state, "complete")
 
+            status = "complete" if not final_state.get("error") else "error"
+            domain = final_state.get("requirements", {}).get("domain", "unknown")
+            report_title = final_state.get("report", {}).get("title", "")
+
             await sse_queue.put({
                 "type": "session_complete",
                 "session_id": session_id,
                 "timestamp": datetime.utcnow().isoformat(),
                 "content": {
-                    "status": "complete" if not final_state.get("error") else "error",
+                    "status": status,
                     "provenance_count": len(final_state.get("provenance_chain", [])),
-                    "report_title": final_state.get("report", {}).get("title", ""),
+                    "report_title": report_title,
                 },
             })
+
+            self._lf_end_span(pipeline_span, output={
+                "status": status,
+                "domain": domain,
+                "report_title": report_title,
+                "agents_completed": len(final_state.get("provenance_chain", [])),
+            })
+            if lf:
+                try: lf.flush()
+                except Exception: pass
 
             return final_state
 
         except Exception as e:
             logger.error(f"[{session_id}] Pipeline fatal error: {e}", exc_info=True)
+            self._lf_end_span(pipeline_span, error=str(e))
+            if lf:
+                try: lf.flush()
+                except Exception: pass
             await sse_queue.put({
                 "type": "error",
                 "session_id": session_id,
@@ -298,18 +371,26 @@ class NEXUSOrchestrator:
         initial_state: AgentState,
         sse_queue: SSEQueue,
         session_id: str,
+        lf=None,
+        user_id: str = None,
     ) -> AgentState:
         """Execute pipeline using LangGraph's compiled StateGraph."""
         state = initial_state
         state["current_agent"] = "requirements"
+        agent_spans: Dict[str, Any] = {}
 
-        # Stream through LangGraph nodes
         async for chunk in self._graph.astream(state):
             for node_name, node_state in chunk.items():
                 if node_name == "__end__":
                     continue
 
-                # Emit agent_start event BEFORE the node output lands
+                # Langfuse: open agent span
+                agent_spans[node_name] = self._lf_span(lf, f"agent:{node_name}", session_id, {
+                    "label": self.AGENT_LABELS.get(node_name, node_name),
+                    "thought": self.AGENT_THOUGHTS.get(node_name, ""),
+                    "user_id": user_id or session_id,
+                })
+
                 await sse_queue.put({
                     "type": "agent_start",
                     "agent": node_name,
@@ -319,16 +400,21 @@ class NEXUSOrchestrator:
                     "content": self.AGENT_THOUGHTS.get(node_name, "Processing..."),
                 })
 
-                # Merge partial state
                 state = {**state, **node_state}
 
-                # Persist intermediate state
                 if self.session_store:
                     await self._persist_session(state, "running")
 
-                # Emit agent_complete with provenance
                 provenance = state.get("provenance_chain", [])
                 last_prov = provenance[-1] if provenance else {}
+
+                # Langfuse: close agent span with output
+                self._lf_end_span(agent_spans.get(node_name), output={
+                    "output_summary": last_prov.get("output_summary", ""),
+                    "confidence_score": last_prov.get("confidence_score", 0.8),
+                    "duration_ms": last_prov.get("duration_ms", 0),
+                    "tools_used": last_prov.get("tools_used", []),
+                })
 
                 await sse_queue.put({
                     "type": "agent_complete",
@@ -354,6 +440,8 @@ class NEXUSOrchestrator:
         initial_state: AgentState,
         sse_queue: SSEQueue,
         session_id: str,
+        lf=None,
+        user_id: str = None,
     ) -> AgentState:
         """
         Sequential agent execution fallback when LangGraph is unavailable.
@@ -381,6 +469,13 @@ class NEXUSOrchestrator:
             if state.get("error"):
                 break
 
+            # Langfuse: open agent span
+            agent_span = self._lf_span(lf, f"agent:{agent_name}", session_id, {
+                "label": self.AGENT_LABELS.get(agent_name, agent_name),
+                "thought": self.AGENT_THOUGHTS.get(agent_name, ""),
+                "user_id": user_id or session_id,
+            })
+
             await sse_queue.put({
                 "type": "agent_start",
                 "agent": agent_name,
@@ -395,6 +490,7 @@ class NEXUSOrchestrator:
                 state = {**state, **new_state}
             except Exception as e:
                 logger.error(f"[{session_id}] Agent {agent_name} failed: {e}", exc_info=True)
+                self._lf_end_span(agent_span, error=str(e))
                 state = {**state, "error": f"{agent_name} agent failed: {str(e)}"}
                 break
 
@@ -403,6 +499,14 @@ class NEXUSOrchestrator:
 
             provenance = state.get("provenance_chain", [])
             last_prov = provenance[-1] if provenance else {}
+
+            # Langfuse: close agent span with output
+            self._lf_end_span(agent_span, output={
+                "output_summary": last_prov.get("output_summary", ""),
+                "confidence_score": last_prov.get("confidence_score", 0.8),
+                "duration_ms": last_prov.get("duration_ms", 0),
+                "tools_used": last_prov.get("tools_used", []),
+            })
 
             await sse_queue.put({
                 "type": "agent_complete",

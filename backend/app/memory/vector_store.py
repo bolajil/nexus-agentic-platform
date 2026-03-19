@@ -219,7 +219,7 @@ class VectorStoreManager:
         content: str,
         domain: str,
         source: str = "manual",
-        metadata: dict | None = None,
+        metadata: Optional[dict] = None,
     ) -> str:
         """
         Add a single named document to the vector store.
@@ -247,9 +247,9 @@ class VectorStoreManager:
     def search(
         self,
         query: str,
-        domain: str | None = None,
+        domain: Optional[str] = None,
         top_k: int = 5,
-        project_id: str | None = None,
+        project_id: Optional[str] = None,
     ) -> list[dict]:
         """
         Hybrid search: normalizes query terminology then runs cosine similarity.

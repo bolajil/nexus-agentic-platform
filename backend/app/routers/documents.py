@@ -38,7 +38,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 
 from app.core.config import Settings, get_settings
 from app.memory.vector_store import VectorStoreManager
@@ -59,7 +59,7 @@ MAX_FILE_SIZE_MB = 50
 CHUNK_SIZE = 800        # characters (approx 200 tokens)
 CHUNK_OVERLAP = 120     # characters of overlap between chunks
 
-_vector_store: VectorStoreManager | None = None
+_vector_store: Optional[VectorStoreManager] = None
 
 
 def get_vector_store(settings: Settings = Depends(get_settings)) -> VectorStoreManager:
@@ -411,11 +411,11 @@ async def list_documents(
         return []
 
 
-@router.delete("/{doc_id}", status_code=204)
+@router.delete("/{doc_id}")
 async def delete_document(
     doc_id: str,
     store: VectorStoreManager = Depends(get_vector_store),
-) -> None:
+) -> Response:
     """Remove all chunks of a document from the knowledge base."""
     try:
         # Get all chunk IDs for this doc
@@ -429,6 +429,7 @@ async def delete_document(
 
         store._collection.delete(ids=ids_to_delete)
         logger.info(f"Deleted document {doc_id}: {len(ids_to_delete)} chunks removed")
+        return Response(status_code=204)
     except HTTPException:
         raise
     except Exception as e:

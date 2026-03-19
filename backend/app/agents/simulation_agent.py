@@ -50,15 +50,12 @@ async def run_simulation_agent(state: "AgentState", config: "Settings") -> dict[
     logger.info(f"[{state['session_id']}] Simulation Agent starting")
 
     try:
-        from langchain_openai import ChatOpenAI
         from langchain_core.messages import HumanMessage, SystemMessage
         from app.tools.simulation_tool import SIMULATION_TOOLS
+        from app.core.llm_factory import create_llm, get_callbacks
 
-        llm = ChatOpenAI(
-            model=config.MODEL_NAME,
-            temperature=0.0,
-            openai_api_key=config.OPENAI_API_KEY,
-        ).bind_tools(SIMULATION_TOOLS)
+        llm = create_llm(config, temperature=0.0).bind_tools(SIMULATION_TOOLS)
+        _cb = get_callbacks(config, state["session_id"], "simulation_agent")
 
         requirements = state.get("requirements", {})
         design_params = state.get("design_params", {})
@@ -97,7 +94,7 @@ INSTRUCTIONS:
         # Agentic tool use loop
         max_iterations = 4
         for iteration in range(max_iterations):
-            response = await llm.ainvoke(messages)
+            response = await llm.ainvoke(messages, config={"callbacks": _cb})
             messages.append(response)
 
             if not response.tool_calls:
@@ -289,6 +286,14 @@ def _run_simulation_directly(domain: str, args: dict) -> dict:
     return {}
 
 
+def _safe_float(value, default: float) -> float:
+    """Convert value to float, falling back to default if conversion fails."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _compute_performance_score(sim_output: dict, targets: dict, domain: str) -> float:
     """Compute a normalized performance score (0-1) based on simulation results vs targets."""
     if not sim_output or "error" in sim_output:
@@ -297,27 +302,27 @@ def _compute_performance_score(sim_output: dict, targets: dict, domain: str) -> 
     scores = []
 
     if domain == "heat_transfer":
-        eff = sim_output.get("effectiveness", 0)
+        eff = _safe_float(sim_output.get("effectiveness", 0), 0)
         scores.append(min(eff / 0.80, 1.0))  # target 80% effectiveness
-        perf_ratio = sim_output.get("performance_ratio", 0)
+        perf_ratio = _safe_float(sim_output.get("performance_ratio", 0), 0)
         scores.append(min(perf_ratio, 1.0))
 
     elif domain == "propulsion":
-        isp = sim_output.get("Isp_s", 0)
-        target_isp = targets.get("Isp_s", targets.get("isp", 280.0))
+        isp = _safe_float(sim_output.get("Isp_s", 0), 0)
+        target_isp = _safe_float(targets.get("Isp_s", targets.get("isp", 280.0)), 280.0)
         scores.append(min(isp / max(target_isp, 1), 1.0))
-        thrust = sim_output.get("thrust_N", 0)
-        target_thrust = targets.get("thrust_N", targets.get("thrust", 500.0))
+        thrust = _safe_float(sim_output.get("thrust_N", 0), 0)
+        target_thrust = _safe_float(targets.get("thrust_N", targets.get("thrust", 500.0)), 500.0)
         scores.append(min(thrust / max(target_thrust, 1), 1.0))
 
     elif domain == "electronics_cooling":
-        T_j = sim_output.get("junction_temperature_C", 150)
-        margin = sim_output.get("thermal_margin_percent", 0)
+        T_j = _safe_float(sim_output.get("junction_temperature_C", 150), 150)
+        margin = _safe_float(sim_output.get("thermal_margin_percent", 0), 0)
         scores.append(max(0.0, min(margin / 30.0, 1.0)))  # 30%+ margin = perfect
         scores.append(1.0 if T_j < 85 else (0.6 if T_j < 100 else 0.2))
 
     elif domain == "structural":
-        sf = sim_output.get("safety_factor", 0)
+        sf = _safe_float(sim_output.get("safety_factor", 0), 0)
         scores.append(min(sf / 3.0, 1.0))  # SF=3 = perfect score
 
     if not scores:

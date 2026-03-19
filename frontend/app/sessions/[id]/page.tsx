@@ -1,9 +1,10 @@
 'use client';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import Sidebar from '../../components/Sidebar';
 import ProvenanceChain from '../../components/ProvenanceChain';
+import DesignDiagram from '../../components/DesignDiagram';
 
 interface Session {
   id: string;
@@ -46,17 +47,18 @@ function JsonSection({ title, data }: { title: string; data: unknown }) {
   );
 }
 
-export default function SessionDetail({ params }: { params: { id: string } }) {
+export default function SessionDetail({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<'overview' | 'provenance' | 'raw'>('overview');
+  const [tab, setTab] = useState<'overview' | 'diagram' | 'provenance' | 'raw'>('overview');
 
   useEffect(() => {
-    fetch(`/api/sessions/${params.id}`)
+    fetch(`/api/sessions/${id}`)
       .then(r => r.ok ? r.json() : null)
       .then(setSession)
       .finally(() => setLoading(false));
-  }, [params.id]);
+  }, [id]);
 
   if (loading) return (
     <div className="flex min-h-screen">
@@ -114,7 +116,7 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
 
         {/* Tabs */}
         <div className="flex gap-1 mb-6 bg-[#0a0a1a] p-1 rounded-xl w-fit border border-[#2a2a4a]">
-          {(['overview', 'provenance', 'raw'] as const).map(t => (
+          {(['overview', 'diagram', 'provenance', 'raw'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -170,6 +172,15 @@ export default function SessionDetail({ params }: { params: { id: string } }) {
             <JsonSection title="Simulation Results" data={session.simulation_results} />
             <JsonSection title="Optimized Parameters" data={session.optimized_params} />
           </div>
+        )}
+
+        {tab === 'diagram' && (
+          <DesignDiagram
+            domain={session.requirements ? (session.requirements as Record<string, unknown>).domain as string : undefined}
+            designParams={session.design_params as Record<string, unknown>}
+            simResults={session.simulation_results as Record<string, unknown>}
+            optimizedParams={session.optimized_params as Record<string, unknown>}
+          />
         )}
 
         {tab === 'provenance' && (

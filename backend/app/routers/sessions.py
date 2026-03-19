@@ -23,9 +23,9 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import AsyncIterator
+from typing import AsyncIterator, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 
 from app.core.config import Settings, get_settings
@@ -42,8 +42,8 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 # Module-level singletons (initialized once at app startup)
-_session_store: SessionStore | None = None
-_orchestrator: NEXUSOrchestrator | None = None
+_session_store: Optional[SessionStore] = None
+_orchestrator: Optional[NEXUSOrchestrator] = None
 
 
 def get_session_store() -> SessionStore:
@@ -95,6 +95,7 @@ async def _sse_generator(sse_queue: SSEQueue) -> AsyncIterator[str]:
 
 @router.post("", status_code=200)
 async def create_session(
+    request: Request,
     body: SessionCreate,
     settings: Settings = Depends(get_settings),
     store: SessionStore = Depends(get_session_store),
@@ -109,8 +110,35 @@ async def create_session(
     The client should listen until it receives a "session_complete" event.
     Session state is persisted to Redis at each agent boundary.
     """
+    # Input sanitisation (prompt injection guard + length limits)
+    from app.core.security import sanitise_brief
+    body.engineering_brief = sanitise_brief(body.engineering_brief)
+
     session_id = str(uuid.uuid4())
     session_name = body.session_name or f"Session {session_id[:8]}"
+
+    # Stable user ID from the frontend (persisted in localStorage)
+    user_id = request.headers.get("X-User-ID") or session_id
+
+    # Langfuse: track session creation event
+    try:
+        from app.core.llm_factory import get_langfuse_client
+        _lf = get_langfuse_client(settings)
+        if _lf:
+            ev = _lf.start_span(
+                name="session:created",
+                metadata={
+                    "session_id": session_id,
+                    "session_name": session_name,
+                    "user_id": user_id,
+                    "brief_length": len(body.engineering_brief),
+                    "brief_preview": body.engineering_brief[:150],
+                    "client_ip": request.client.host if request.client else "unknown",
+                },
+            )
+            ev.end()
+    except Exception:
+        pass
 
     # Create initial session record
     initial_session = {
@@ -135,7 +163,7 @@ async def create_session(
 
     # Create SSE queue and launch pipeline as background task
     sse_queue = SSEQueue()
-    asyncio.create_task(orchestrator.run(initial_state, sse_queue))
+    asyncio.create_task(orchestrator.run(initial_state, sse_queue, user_id=user_id))
 
     logger.info(f"[{session_id}] Pipeline started for brief: {body.engineering_brief[:80]}...")
 
@@ -183,16 +211,17 @@ async def get_session(
     return session
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}")
 async def delete_session(
     session_id: str,
     store: SessionStore = Depends(get_session_store),
-) -> None:
+) -> Response:
     """Delete a session from the store."""
     session = store.get_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     store.delete_session(session_id)
+    return Response(status_code=204)
 
 
 @router.get("/{session_id}/provenance")
