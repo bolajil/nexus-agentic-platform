@@ -62,7 +62,8 @@ async def run_report_agent(state: "AgentState", config: "Settings") -> dict[str,
         from app.core.llm_factory import create_llm, get_callbacks
 
         llm = create_llm(config, temperature=0.2)
-        _cb = get_callbacks(config, state["session_id"], "report_agent")
+        _cb = get_callbacks(config, state["session_id"], "report_agent",
+                            trace_id=state.get("lf_trace_id"), user_id=state.get("session_user_id"))
 
         requirements = state.get("requirements", {})
         research_results = state.get("research_results", {})

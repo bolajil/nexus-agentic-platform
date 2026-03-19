@@ -56,7 +56,8 @@ async def run_requirements_agent(state: "AgentState", config: "Settings") -> dic
         from app.core.llm_factory import create_llm, get_callbacks
 
         llm = create_llm(config, temperature=0.1)
-        _cb = get_callbacks(config, state["session_id"], "requirements_agent")
+        _cb = get_callbacks(config, state["session_id"], "requirements_agent",
+                            trace_id=state.get("lf_trace_id"), user_id=state.get("session_user_id"))
 
         engineering_brief = state.get("engineering_brief", state.get("messages", [{}])[0] if state.get("messages") else "")
         if isinstance(engineering_brief, list):

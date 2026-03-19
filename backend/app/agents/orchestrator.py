@@ -62,6 +62,8 @@ class AgentState(TypedDict, total=False):
     # ── Observability ─────────────────────────────────────────────────
     provenance_chain: list[dict[str, Any]]  # Ordered audit trail
     messages: list[dict[str, Any]]          # LangChain message history
+    lf_trace_id: Optional[str]              # Langfuse root trace ID — links all LLM costs
+    session_user_id: Optional[str]          # Authenticated user ID for Langfuse user tracking
 
 
 # ── SSE Event Queue ───────────────────────────────────────────────────────────
@@ -307,6 +309,19 @@ class NEXUSOrchestrator:
             "mode": "langgraph" if self._graph else "sequential",
             "user_id": user_id,
         })
+
+        # Extract trace_id so all 6 agent LLM calls nest under this root trace
+        # — this makes token costs roll up to the pipeline level in Langfuse
+        lf_trace_id = None
+        try:
+            if pipeline_span is not None:
+                lf_trace_id = getattr(pipeline_span, 'trace_id', None)
+        except Exception:
+            pass
+
+        # Inject trace context into state so all agents can access it
+        initial_state["lf_trace_id"] = lf_trace_id
+        initial_state["session_user_id"] = user_id
 
         try:
             if self._graph is not None:

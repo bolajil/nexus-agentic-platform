@@ -67,13 +67,19 @@ def create_llm(config: "Settings", temperature: float = 0.1):
     )
 
 
-def get_callbacks(config: "Settings", session_id: str, trace_name: str) -> List:
+def get_callbacks(
+    config: "Settings",
+    session_id: str,
+    trace_name: str,
+    trace_id: str = None,
+    user_id: str = None,
+) -> List:
     """
     Return a list of LangChain callbacks for the current invocation.
 
     Uses langfuse v3 langchain integration (langfuse.langchain.CallbackHandler).
-    Each agent LLM call is traced with session_id and user_id so all 6 agents
-    for one pipeline run are grouped under the same session in Langfuse.
+    Passing trace_id nests each LLM generation under the root nexus-pipeline trace
+    so token usage and costs roll up correctly in the Langfuse dashboard.
     """
     lf = _get_langfuse_client(config)
     if lf is None:
@@ -91,13 +97,19 @@ def get_callbacks(config: "Settings", session_id: str, trace_name: str) -> List:
         os.environ.setdefault("LANGFUSE_HOST", host)
 
         from langfuse.langchain import CallbackHandler  # type: ignore
-        handler = CallbackHandler(
+
+        kwargs = dict(
             session_id=session_id,
-            user_id=session_id,
+            user_id=user_id or session_id,
             trace_name=trace_name,
             tags=["nexus", getattr(config, 'APP_ENV', 'development')],
         )
-        logger.info(f"[{session_id}] Langfuse callback attached: {trace_name}")
+        # If trace_id is provided, nest this generation under the root pipeline trace
+        if trace_id:
+            kwargs["trace_id"] = trace_id
+
+        handler = CallbackHandler(**kwargs)
+        logger.info(f"[{session_id}] Langfuse callback attached: {trace_name} (trace={trace_id})")
         return [handler]
     except Exception as exc:
         logger.warning(f"[{session_id}] Langfuse langchain handler failed: {exc}")

@@ -52,7 +52,8 @@ async def run_research_agent(state: "AgentState", config: "Settings") -> dict[st
         from app.core.llm_factory import create_llm, get_callbacks
 
         llm = create_llm(config, temperature=0.2)
-        _cb = get_callbacks(config, state["session_id"], "research_agent")
+        _cb = get_callbacks(config, state["session_id"], "research_agent",
+                            trace_id=state.get("lf_trace_id"), user_id=state.get("session_user_id"))
 
         requirements = state.get("requirements", {})
         domain = requirements.get("domain", "heat_transfer")
