@@ -35,6 +35,10 @@ opentelemetry-sdk==1.28.4
 opentelemetry-exporter-otlp==1.28.4
 opentelemetry-instrumentation-fastapi==0.49b4
 
+# ── Document Parsing (for file upload) ────────────────────────────────────────
+pymupdf==1.24.14          # PDF text extraction (fitz)
+python-docx==1.1.2        # DOCX extraction
+
 # ── Utilities ──────────────────────────────────────────────────────────────────
 tenacity==9.0.0
 python-dotenv==1.0.1

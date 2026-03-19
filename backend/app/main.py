@@ -152,6 +152,13 @@ def create_app() -> FastAPI:
     except Exception as e:
         logger.warning(f"Knowledge router unavailable: {e}")
 
+    try:
+        from app.routers.documents import router as documents_router
+        app.include_router(documents_router, prefix="/api/v1")
+        logger.info("Documents upload router registered")
+    except Exception as e:
+        logger.warning(f"Documents router unavailable: {e}")
+
     # ── Global Exception Handlers ──────────────────────────────────────
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):

@@ -210,3 +210,87 @@ class VectorStoreManager:
         except Exception as e:
             logger.error(f"Failed to reset collection: {e}")
             return False
+
+    # ── Convenience aliases (used by routers and seed script) ─────────────────
+
+    def add_document(
+        self,
+        title: str,
+        content: str,
+        domain: str,
+        source: str = "manual",
+        metadata: dict | None = None,
+    ) -> str:
+        """
+        Add a single named document to the vector store.
+        Normalizes terminology before embedding.
+        Returns the generated document ID.
+        """
+        import hashlib
+        from app.tools.terminology import normalize_document
+
+        doc_id = hashlib.md5(f"{title}{domain}".encode()).hexdigest()[:16]
+        normalized = normalize_document(content)
+
+        self.add_documents([{
+            "id": doc_id,
+            "content": normalized,
+            "metadata": {
+                "title":  title,
+                "domain": domain,
+                "source": source,
+                **(metadata or {}),
+            },
+        }])
+        return doc_id
+
+    def search(
+        self,
+        query: str,
+        domain: str | None = None,
+        top_k: int = 5,
+        project_id: str | None = None,
+    ) -> list[dict]:
+        """
+        Hybrid search: normalizes query terminology then runs cosine similarity.
+
+        Terminology normalization ensures that querying "junction-to-ambient
+        thermal resistance" finds documents that use "θ_ja", and vice versa,
+        because both are expanded to the same canonical form before embedding.
+        """
+        from app.tools.terminology import normalize_query
+
+        # Normalize query: expand Greek letters, abbreviations, project glossary
+        normalized_query = normalize_query(query, project_id=project_id)
+
+        results = self.similarity_search(
+            query=normalized_query,
+            k=top_k,
+            filter_domain=domain,
+        )
+
+        # Re-label fields for API consistency
+        output = []
+        for r in results:
+            meta = r.get("metadata", {})
+            output.append({
+                "title":   meta.get("title", ""),
+                "domain":  meta.get("domain", domain or ""),
+                "content": r.get("content", ""),
+                "score":   r.get("relevance_score", 0.0),
+                "source":  meta.get("source", ""),
+                "project_id": meta.get("project_id", ""),
+            })
+        return output
+
+    def get_stats(self) -> dict:
+        """Return collection statistics (alias for get_collection_stats)."""
+        stats = self.get_collection_stats()
+        # Add domain list from metadata scan (best-effort)
+        try:
+            results = self._collection.get(include=["metadatas"])
+            domains = list({m.get("domain", "") for m in (results.get("metadatas") or []) if m.get("domain")})
+            stats["domains"] = sorted(domains)
+        except Exception:
+            stats["domains"] = []
+        return stats
