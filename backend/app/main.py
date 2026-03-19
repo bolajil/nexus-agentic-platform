@@ -1,0 +1,167 @@
+"""
+NEXUS Platform — FastAPI Application Entry Point
+=================================================
+Initialises all sub-systems, registers routers, and configures middleware.
+
+Start:
+    uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+
+Or via Docker:
+    docker compose up --build
+"""
+from __future__ import annotations
+
+import logging
+import time
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import JSONResponse
+
+from app.core.config import get_settings
+from app.core.logging_setup import configure_logging
+
+# Configure structured logging before anything else
+configure_logging()
+logger = logging.getLogger(__name__)
+
+
+# ── Lifespan ──────────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan manager.
+    Initialises dependencies on startup, tears them down on shutdown.
+
+    Order of operations:
+    1. Validate settings (fail fast if OPENAI_API_KEY is missing)
+    2. Initialise Redis session store (fallback to in-memory if unavailable)
+    3. Initialise ChromaDB vector store (fallback to in-memory if unavailable)
+    4. Seed knowledge base if empty
+    5. Start OpenTelemetry tracing (optional)
+    """
+    settings = get_settings()
+    logger.info(f"Starting NEXUS Platform v{settings.app_version}")
+    logger.info(f"Environment: {settings.environment}")
+
+    # ── Session Store ─────────────────────────────────────────────────
+    try:
+        from app.memory.session_store import SessionStore
+        store = SessionStore(settings.redis_url)
+        store.initialize()
+        app.state.session_store = store
+        logger.info("Session store initialized")
+    except Exception as e:
+        logger.warning(f"Session store init failed: {e} — using fallback")
+
+    # ── Vector Store ──────────────────────────────────────────────────
+    try:
+        from app.memory.vector_store import VectorStoreManager
+        vs = VectorStoreManager(
+            openai_api_key=settings.openai_api_key,
+            host=settings.chroma_host,
+            port=settings.chroma_port,
+        )
+        vs.initialize()
+        app.state.vector_store = vs
+        logger.info("Vector store initialized")
+
+        # Auto-seed if empty
+        stats = vs.get_stats()
+        if stats.get("total_documents", 0) == 0:
+            logger.info("Knowledge base is empty — triggering auto-seed...")
+            try:
+                import sys, os
+                sys.path.insert(0, os.path.dirname(__file__) + "/../")
+                from scripts.seed_knowledge_base import seed
+                seed(vs)
+                logger.info("Knowledge base seeded successfully")
+            except Exception as seed_err:
+                logger.warning(f"Auto-seed failed (not critical): {seed_err}")
+    except Exception as e:
+        logger.warning(f"Vector store init failed: {e}")
+
+    # ── OpenTelemetry ─────────────────────────────────────────────────
+    try:
+        from app.core.telemetry import setup_telemetry
+        setup_telemetry(settings.app_name, settings.otlp_endpoint)
+        logger.info("OpenTelemetry tracing initialized")
+    except Exception as e:
+        logger.debug(f"Telemetry not available: {e}")
+
+    logger.info("NEXUS Platform ready — all systems nominal")
+    yield
+
+    # ── Shutdown ──────────────────────────────────────────────────────
+    logger.info("NEXUS Platform shutting down gracefully")
+
+
+# ── FastAPI App ───────────────────────────────────────────────────────────────
+
+def create_app() -> FastAPI:
+    settings = get_settings()
+
+    app = FastAPI(
+        title="NEXUS — Multi-Agent Engineering Platform",
+        description=(
+            "Production-grade agentic AI platform for autonomous hardware design. "
+            "Routes engineering briefs through a 6-agent LangGraph pipeline: "
+            "Requirements → Research → Design → Simulation → Optimization → Report."
+        ),
+        version=settings.app_version,
+        docs_url="/docs",
+        redoc_url="/redoc",
+        lifespan=lifespan,
+    )
+
+    # ── Middleware ─────────────────────────────────────────────────────
+    app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+        expose_headers=["X-Session-ID"],
+    )
+
+    # Request timing middleware
+    @app.middleware("http")
+    async def add_timing_header(request, call_next):
+        start = time.perf_counter()
+        response = await call_next(request)
+        elapsed = (time.perf_counter() - start) * 1000
+        response.headers["X-Process-Time-Ms"] = f"{elapsed:.1f}"
+        return response
+
+    # ── Routers ────────────────────────────────────────────────────────
+    from app.routers.health import router as health_router
+    from app.routers.sessions import router as sessions_router
+
+    app.include_router(health_router)
+    app.include_router(sessions_router, prefix="/api/v1")
+
+    try:
+        from app.routers.knowledge import router as knowledge_router
+        app.include_router(knowledge_router, prefix="/api/v1")
+        logger.info("Knowledge router registered")
+    except Exception as e:
+        logger.warning(f"Knowledge router unavailable: {e}")
+
+    # ── Global Exception Handlers ──────────────────────────────────────
+    @app.exception_handler(Exception)
+    async def global_exception_handler(request, exc):
+        logger.error(f"Unhandled exception: {exc}", exc_info=True)
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Internal server error", "type": type(exc).__name__},
+        )
+
+    return app
+
+
+app = create_app()

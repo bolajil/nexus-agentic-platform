@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+dist/
+.pytest_cache/
+
+# Environment
+.env
+backend/.env
+frontend/.env.local
+
+# Node
+node_modules/
+.next/
+frontend/.next/
+frontend/node_modules/
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# Data (don't commit vector store data)
+backend/data/
+chroma_data/

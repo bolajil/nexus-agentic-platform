@@ -1,0 +1,102 @@
+version: "3.9"
+
+# ── NEXUS Platform — Docker Compose ────────────────────────────────────────────
+# Services:
+#   nexus-backend  — FastAPI + LangGraph agent pipeline  (port 8003)
+#   nexus-frontend — Next.js 15 UI                       (port 3002)
+#   redis          — Session persistence                  (port 6379)
+#   chromadb       — Vector knowledge base               (port 8004)
+#
+# Start everything:
+#   docker compose up --build
+#
+# Start with real-time logs:
+#   docker compose up --build --watch
+
+services:
+
+  # ── Redis ────────────────────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: nexus-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── ChromaDB ─────────────────────────────────────────────────────────────────
+  chromadb:
+    image: chromadb/chroma:0.5.23
+    container_name: nexus-chromadb
+    ports:
+      - "8004:8000"
+    volumes:
+      - chroma_data:/chroma/chroma
+    environment:
+      IS_PERSISTENT: "TRUE"
+      PERSIST_DIRECTORY: /chroma/chroma
+      ANONYMIZED_TELEMETRY: "FALSE"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Backend ───────────────────────────────────────────────────────────────────
+  nexus-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nexus-backend
+    ports:
+      - "8003:8003"
+    environment:
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      REDIS_URL: redis://redis:6379
+      CHROMA_HOST: chromadb
+      CHROMA_PORT: 8000
+      CORS_ORIGINS: '["http://localhost:3002","http://nexus-frontend:3002"]'
+      APP_ENV: production
+      LOG_LEVEL: INFO
+    depends_on:
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8003/health"]
+      interval: 20s
+      timeout: 10s
+      start_period: 30s
+      retries: 3
+    restart: unless-stopped
+    volumes:
+      - ./backend:/app:ro    # Read-only mount for development hot-reload
+
+  # ── Frontend ─────────────────────────────────────────────────────────────────
+  nexus-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nexus-frontend
+    ports:
+      - "3002:3002"
+    environment:
+      BACKEND_URL: http://nexus-backend:8003
+      NEXT_PUBLIC_API_URL: http://localhost:8003
+    depends_on:
+      nexus-backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  chroma_data:

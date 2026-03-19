@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --surface-bg:     #0f0f23;
+  --surface-card:   #16162a;
+  --surface-border: #2a2a4a;
+  --surface-hover:  #1e1e38;
+  --nexus-500:      #6366f1;
+  --nexus-400:      #818cf8;
+  --nexus-glow:     rgba(99,102,241,0.4);
+  --text-primary:   #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  background-color: var(--surface-bg);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Scrollbar ────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--surface-bg); }
+::-webkit-scrollbar-thumb { background: var(--surface-border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--nexus-500); }
+
+/* ── Glass card ───────────────────────────────────────────────────────── */
+.glass-card {
+  background: rgba(22, 22, 42, 0.8);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--surface-border);
+  border-radius: 12px;
+}
+
+/* ── Nexus glow effect ────────────────────────────────────────────────── */
+.nexus-glow {
+  box-shadow: 0 0 20px var(--nexus-glow), 0 0 60px rgba(99,102,241,0.1);
+}
+
+.nexus-glow-text {
+  text-shadow: 0 0 20px var(--nexus-glow);
+}
+
+/* ── Agent status indicators ─────────────────────────────────────────── */
+.agent-pulse {
+  animation: agent-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes agent-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.6; transform: scale(0.95); }
+}
+
+/* ── Pipeline connector line ─────────────────────────────────────────── */
+.pipeline-line {
+  background: linear-gradient(180deg, var(--nexus-500) 0%, transparent 100%);
+  width: 2px;
+}
+
+/* ── SSE event stream animation ──────────────────────────────────────── */
+.stream-enter {
+  animation: streamEnter 0.4s ease-out;
+}
+
+@keyframes streamEnter {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* ── Code blocks ──────────────────────────────────────────────────────── */
+pre, code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.85em;
+}
