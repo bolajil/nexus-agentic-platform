@@ -45,16 +45,74 @@ def _get_langfuse_client(config: "Settings"):
 
     try:
         from langfuse import Langfuse  # type: ignore
-        _langfuse_client = Langfuse(
-            public_key=pk,
-            secret_key=sk,
-            host=getattr(config, 'LANGFUSE_HOST', 'https://cloud.langfuse.com'),
-        )
+        host = getattr(config, 'LANGFUSE_HOST', 'https://cloud.langfuse.com')
+        _langfuse_client = Langfuse(public_key=pk, secret_key=sk, host=host)
         logger.info("Langfuse client initialised (v3)")
+        _register_model_prices(pk, sk, host)
         return _langfuse_client
     except Exception as exc:
         logger.warning(f"Langfuse client init failed: {exc}")
         return None
+
+
+def _register_model_prices(pk: str, sk: str, host: str) -> None:
+    """
+    Register OpenAI model prices in this Langfuse project so cost tracking works.
+    Uses the Langfuse REST API — prices are per token (not per 1M tokens).
+    Silently skips if models already exist or if the API is unreachable.
+
+    Prices (March 2026):
+      gpt-4o         input $2.50/1M  output $10.00/1M
+      gpt-4o-mini    input $0.15/1M  output  $0.60/1M
+    """
+    import base64
+    import json
+    import urllib.request
+
+    credentials = base64.b64encode(f"{pk}:{sk}".encode()).decode()
+    headers = {
+        "Authorization": f"Basic {credentials}",
+        "Content-Type": "application/json",
+    }
+    url = f"{host.rstrip('/')}/api/public/models"
+
+    models = [
+        {
+            "modelName": "gpt-4o",
+            "matchPattern": r"(?i)^(gpt-4o)(-\d{4}-\d{2}-\d{2})?$",
+            "unit": "TOKENS",
+            "inputPrice": 0.0000025,
+            "outputPrice": 0.00001,
+            "tokenizerId": "cl100k_base",
+        },
+        {
+            "modelName": "gpt-4o-mini",
+            "matchPattern": r"(?i)^(gpt-4o-mini)(-\d{4}-\d{2}-\d{2})?$",
+            "unit": "TOKENS",
+            "inputPrice": 0.00000015,
+            "outputPrice": 0.0000006,
+            "tokenizerId": "cl100k_base",
+        },
+        {
+            "modelName": "text-embedding-3-small",
+            "matchPattern": r"(?i)^text-embedding-3-small$",
+            "unit": "TOKENS",
+            "inputPrice": 0.00000002,
+            "outputPrice": 0.0,
+            "tokenizerId": "cl100k_base",
+        },
+    ]
+
+    for model in models:
+        try:
+            data = json.dumps(model).encode()
+            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status in (200, 201):
+                    logger.info(f"Langfuse model price registered: {model['modelName']}")
+        except Exception as exc:
+            # 409 = already exists — that's fine
+            logger.debug(f"Model price registration skipped for {model['modelName']}: {exc}")
 
 
 def create_llm(config: "Settings", temperature: float = 0.1):
