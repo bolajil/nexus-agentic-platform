@@ -156,13 +156,18 @@ async def _connect_nist(cfg: Optional[ToolConfig]) -> dict:
         with urllib.request.urlopen(req, timeout=6) as r:
             raw = r.read().decode("utf-8")
 
-        # Parse first data row (tab-separated)
+        # Parse first data row (tab-separated); be resilient to column count changes
         rows = [ln for ln in raw.splitlines() if ln.strip() and not ln.startswith("Temp")]
         if rows:
             cols = rows[0].split("\t")
-            sample = f"T={cols[0]}K  P={cols[1]}MPa  ρ_liq={cols[2]}kg/m³  h_liq={cols[5]}kJ/kg"
+            parts = []
+            labels = ["T", "P", "ρ_liq", "ρ_vap", "h_liq", "h_vap"]
+            for i, label in enumerate(labels):
+                if i < len(cols) and cols[i].strip():
+                    parts.append(f"{label}={cols[i].strip()}")
+            sample = "  ".join(parts) if parts else rows[0][:120]
         else:
-            sample = "Data received (parse error — raw response available)"
+            sample = "Data received from NIST WebBook"
 
         return {
             "status": "connected",

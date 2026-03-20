@@ -78,6 +78,8 @@ def get_settings() -> Settings:
 
 # Lowercase property aliases used by routers and main.py
 Settings.openai_api_key = property(lambda self: self.OPENAI_API_KEY)
+Settings.model_name = property(lambda self: self.MODEL_NAME)
+Settings.embedding_model = property(lambda self: self.EMBEDDING_MODEL)
 Settings.redis_url = property(lambda self: self.REDIS_URL)
 Settings.chroma_host = property(lambda self: self.CHROMA_HOST)
 Settings.chroma_port = property(lambda self: self.CHROMA_PORT)
