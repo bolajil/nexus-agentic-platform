@@ -140,8 +140,8 @@ export default function ProvenancePage() {
                           </div>
                           {entry.tools_used?.length > 0 && (
                             <div className="flex flex-wrap gap-1.5">
-                              {entry.tools_used.map((t: string) => (
-                                <span key={t} className="text-[10px] px-2 py-0.5 rounded bg-purple-900/20 text-purple-400 border border-purple-500/20 font-mono">
+                              {entry.tools_used.map((t: string, ti: number) => (
+                                <span key={`${t}-${ti}`} className="text-[10px] px-2 py-0.5 rounded bg-purple-900/20 text-purple-400 border border-purple-500/20 font-mono">
                                   {t}
                                 </span>
                               ))}
