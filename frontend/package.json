@@ -10,12 +10,14 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@types/three": "^0.183.1",
     "clsx": "2.1.1",
     "framer-motion": "^11.18.2",
     "next": "^16.2.0",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "tailwind-merge": "2.5.5"
+    "tailwind-merge": "2.5.5",
+    "three": "^0.183.2"
   },
   "devDependencies": {
     "@types/node": "22.10.2",
