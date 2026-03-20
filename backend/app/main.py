@@ -186,6 +186,13 @@ def create_app() -> FastAPI:
     except Exception as e:
         logger.warning(f"Tools router unavailable: {e}")
 
+    try:
+        from app.routers.cad import router as cad_router
+        app.include_router(cad_router, prefix="/api/v1")
+        logger.info("CAD file router registered")
+    except Exception as e:
+        logger.warning(f"CAD router unavailable: {e}")
+
     # ── Global Exception Handlers ──────────────────────────────────────
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):

@@ -60,10 +60,33 @@ async def run_research_agent(state: "AgentState", config: "Settings") -> dict[st
         objective = requirements.get("primary_objective", "")
         performance_targets = requirements.get("performance_targets", {})
 
-        # Perform targeted RAG searches
+        # ── NIST fluid property queries ───────────────────────────────
+        nist_data = {}
+        nist_tools_used = []
+        fluid = _infer_fluid(domain, requirements)
+        if fluid:
+            temp_k  = _infer_temperature_k(requirements)
+            press_mpa = _infer_pressure_mpa(requirements)
+            try:
+                from app.tools.nist_tool import get_fluid_properties
+                props = get_fluid_properties.invoke({
+                    "fluid": fluid,
+                    "temperature_k": temp_k,
+                    "pressure_mpa": press_mpa,
+                })
+                if "error" not in props:
+                    nist_data = props
+                    nist_tools_used.append(
+                        f"NIST({fluid} @ {temp_k:.0f}K, {press_mpa:.4f}MPa)"
+                    )
+                    logger.info(f"[{state['session_id']}] NIST data retrieved for {fluid}")
+            except Exception as e:
+                logger.warning(f"[{state['session_id']}] NIST lookup failed: {e}")
+
+        # ── RAG knowledge base searches ───────────────────────────────
         queries = _build_search_queries(domain, objective, performance_targets)
         all_documents = []
-        tools_used = []
+        tools_used = list(nist_tools_used)
 
         for query in queries:
             logger.info(f"[{state['session_id']}] Research search: '{query}'")
@@ -86,6 +109,16 @@ async def run_research_agent(state: "AgentState", config: "Settings") -> dict[st
             for i, d in enumerate(unique_docs[:8])
         )
 
+        # Format NIST data for injection into synthesis prompt
+        nist_section = ""
+        if nist_data:
+            nist_lines = [f"  {k}: {v}" for k, v in nist_data.items() if k != "source"]
+            nist_section = (
+                f"\nREAL FLUID PROPERTIES (NIST WebBook — {nist_data.get('source', fluid)}):\n"
+                + "\n".join(nist_lines)
+                + "\n"
+            )
+
         synthesis_messages = [
             SystemMessage(content=SYSTEM_PROMPT),
             HumanMessage(
@@ -96,7 +129,7 @@ REQUIREMENTS SUMMARY:
 - Objective: {objective}
 - Performance Targets: {performance_targets}
 - Operating Conditions: {requirements.get('operating_conditions', {})}
-
+{nist_section}
 RETRIEVED KNOWLEDGE BASE DOCUMENTS:
 {docs_text if docs_text else "No documents found in knowledge base. Use your training knowledge."}
 
@@ -221,6 +254,68 @@ def _extract_formulas_from_text(text: str, domain: str) -> list[str]:
         if kw.lower() in text.lower():
             found.append(kw)
     return found
+
+
+def _infer_fluid(domain: str, requirements: dict) -> str | None:
+    """Guess the primary fluid from domain and requirements text."""
+    brief = str(requirements).lower()
+    fluid_map = {
+        "water": ["water", "aqueous", "cooling water", "chilled water"],
+        "nitrogen": ["nitrogen", "n2", "cold gas"],
+        "oxygen": ["oxygen", "lox", "liquid oxygen"],
+        "air": ["air", "forced air", "ambient air"],
+        "co2": ["co2", "carbon dioxide"],
+        "r134a": ["r134a", "refrigerant", "hfc"],
+        "methane": ["methane", "lng", "ch4"],
+        "hydrogen": ["hydrogen", "h2"],
+    }
+    for fluid, keywords in fluid_map.items():
+        if any(kw in brief for kw in keywords):
+            return fluid
+    # Domain defaults
+    defaults = {
+        "heat_transfer":    "water",
+        "electronics_cooling": "air",
+        "propulsion":       "nitrogen",
+        "structural":       None,
+    }
+    return defaults.get(domain)
+
+
+def _infer_temperature_k(requirements: dict) -> float:
+    """Extract operating temperature in Kelvin from requirements."""
+    conditions = requirements.get("operating_conditions", {})
+    targets    = requirements.get("performance_targets", {})
+    for source in [conditions, targets]:
+        for k, v in source.items():
+            if any(t in k.lower() for t in ["temp", "inlet", "hot", "cold"]):
+                try:
+                    val = float(v)
+                    if val < 100:
+                        return val + 273.15  # assume Celsius
+                    return val
+                except (TypeError, ValueError):
+                    pass
+    return 300.0  # default 300 K
+
+
+def _infer_pressure_mpa(requirements: dict) -> float:
+    """Extract operating pressure in MPa from requirements."""
+    conditions = requirements.get("operating_conditions", {})
+    targets    = requirements.get("performance_targets", {})
+    for source in [conditions, targets]:
+        for k, v in source.items():
+            if "press" in k.lower():
+                try:
+                    val = float(v)
+                    if val > 1000:
+                        return val / 1e6       # Pa → MPa
+                    elif val > 10:
+                        return val / 1000      # kPa → MPa
+                    return val                 # already MPa
+                except (TypeError, ValueError):
+                    pass
+    return 0.101325  # 1 atm
 
 
 def _extract_approaches(text: str) -> list[str]:

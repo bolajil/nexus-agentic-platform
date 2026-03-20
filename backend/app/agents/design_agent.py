@@ -113,6 +113,27 @@ async def run_design_agent(state: "AgentState", config: "Settings") -> dict[str,
         final_text = response.content if hasattr(response, "content") else ""
         design_params = _extract_design_params(final_text, all_params, domain, requirements)
 
+        # ── FreeCAD CAD generation ────────────────────────────────────
+        cad_result = {"available": False, "message": "FreeCAD not attempted"}
+        try:
+            from app.tools.freecad_tool import generate_cad
+            cad_result = generate_cad(
+                session_id=state["session_id"],
+                domain=domain,
+                design_params=design_params,
+            )
+            if cad_result["available"]:
+                # Write domain metadata so the CAD router can report it
+                from pathlib import Path
+                from app.tools.freecad_tool import CAD_OUTPUT_DIR
+                meta = CAD_OUTPUT_DIR / state["session_id"] / "meta.txt"
+                meta.write_text(domain, encoding="utf-8")
+                logger.info(f"[{state['session_id']}] CAD generated: {cad_result['message']}")
+            else:
+                logger.info(f"[{state['session_id']}] CAD skipped: {cad_result['message']}")
+        except Exception as cad_err:
+            logger.warning(f"[{state['session_id']}] FreeCAD tool error: {cad_err}")
+
         elapsed_ms = (datetime.utcnow() - start_time).total_seconds() * 1000
         confidence = design_params.get("confidence_score", 0.8)
 
@@ -132,6 +153,7 @@ async def run_design_agent(state: "AgentState", config: "Settings") -> dict[str,
         return {
             **state,
             "design_params": design_params,
+            "cad_info": cad_result,
             "current_agent": "simulation",
             "provenance_chain": current_provenance + [provenance_entry],
         }
