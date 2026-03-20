@@ -199,55 +199,148 @@ function HeatSinkDiagram({ dp, sim, opt }: { dp: Record<string, unknown>; sim: R
 
 // ── De Laval Nozzle / Propulsion Diagram ─────────────────────────────────────
 function NozzleDiagram({ dp, sim, opt }: { dp: Record<string, unknown>; sim: Record<string, unknown>; opt: Record<string, unknown> }) {
-  const Isp = Number(opt.Isp_s ?? dp.Isp_s ?? sim.Isp_s ?? 65).toFixed(0);
-  const thrust = Number(opt.thrust_mN ?? dp.thrust_mN ?? sim.thrust_mN ?? 50).toFixed(1);
-  const expRatio = Number(opt.expansion_ratio ?? dp.expansion_ratio ?? 8).toFixed(1);
-  const throatDia = Number(opt.throat_diameter_mm ?? dp.throat_diameter_mm ?? 2.4).toFixed(1);
-  const exitDia = Number(opt.exit_diameter_mm ?? dp.exit_diameter_mm ?? 6.8).toFixed(1);
-  const chamberL = Number(dp.chamber_length_mm ?? opt.chamber_length_mm ?? 40).toFixed(0);
+  // Isp: look in simulation output first, then design/optimized params
+  const IspRaw = Number(sim.Isp_s ?? sim.isp_s ?? opt.Isp_s ?? dp.Isp_s ?? dp.isp_s ?? 280);
+  const Isp = IspRaw.toFixed(0);
+
+  // Thrust: prefer N over mN
+  const thrustN = Number(
+    sim.thrust_N ?? sim.thrust_n ?? opt.thrust_N ?? dp.thrust_N ??
+    sim.thrust_mN ?? dp.thrust_mN ?? opt.thrust_mN ?? 500
+  );
+  const thrustLabel = thrustN > 10 ? `${thrustN.toFixed(0)} N` : `${(thrustN * 1000).toFixed(1)} mN`;
+
+  const expRatio  = Number(opt.expansion_ratio ?? dp.expansion_ratio ?? sim.expansion_ratio ?? 8).toFixed(1);
+  const throatDia = Number(opt.throat_diameter_mm ?? dp.throat_diameter_mm ?? 25).toFixed(1);
+
+  // Compute exit diameter from throat + expansion ratio if not given
+  const exitDiaRaw = Number(opt.exit_diameter_mm ?? dp.exit_diameter_mm ??
+    (Number(opt.throat_diameter_mm ?? dp.throat_diameter_mm ?? 25) * Math.sqrt(Number(expRatio))));
+  const exitDia = exitDiaRaw.toFixed(1);
+
+  const chamberL = Number(dp.chamber_length_mm ?? opt.chamber_length_mm ?? 80).toFixed(0);
+
+  // Chamber pressure
+  const pc = Number(dp.chamber_pressure_MPa ?? dp.chamber_pressure_Pa != null
+    ? Number(dp.chamber_pressure_Pa) / 1e6
+    : opt.chamber_pressure_MPa ?? sim.chamber_pressure_MPa ?? 3);
+  const pcLabel = pc > 0.1 ? `${pc.toFixed(1)} MPa` : `${(pc * 1000).toFixed(0)} kPa`;
+
+  // Propellant label — infer from params or use generic
+  const propRaw = String(dp.propellant ?? dp.propellants ?? dp.propellant_type ?? '');
+  const propLabel = propRaw.length > 1
+    ? propRaw.slice(0, 12)
+    : dp.chamber_pressure_MPa && Number(dp.chamber_pressure_MPa) > 2
+      ? 'LOX/RP-1' : 'Propellant';
 
   return (
-    <svg viewBox="0 0 370 220" className="w-full rounded-none bg-[#0a0a1a]">
+    <svg viewBox="0 0 370 225" className="w-full rounded-none bg-[#0a0a1a]">
       {/* Chamber */}
-      <rect x={10} y={60} width={80} height={60} fill="#1e1e38" stroke="#6366f1" strokeWidth="1.5" rx="3" />
-      <text x="50" y="85" fontSize="7" fill="#a5b4fc" textAnchor="middle">Propellant</text>
-      <text x="50" y="95" fontSize="7" fill="#a5b4fc" textAnchor="middle">Chamber</text>
-      <text x="50" y="107" fontSize="6.5" fill="#6366f1" textAnchor="middle">N₂ Gas</text>
+      <rect x={10} y={58} width={80} height={64} fill="#1e1e38" stroke="#6366f1" strokeWidth="1.5" rx="3" />
+      <text x="50" y="82" fontSize="7" fill="#a5b4fc" textAnchor="middle">Combustion</text>
+      <text x="50" y="92" fontSize="7" fill="#a5b4fc" textAnchor="middle">Chamber</text>
+      <text x="50" y="105" fontSize="6.5" fill="#6366f1" textAnchor="middle">{propLabel}</text>
 
       {/* Converging section */}
-      <path d="M 90 63 L 162 82 L 162 98 L 90 117 Z" fill="#2a2a4a" stroke="#818cf8" strokeWidth="1" />
+      <path d="M 90 61 L 162 80 L 162 100 L 90 119 Z" fill="#2a2a4a" stroke="#818cf8" strokeWidth="1" />
 
       {/* Throat */}
-      <rect x={157} y={82} width={10} height={16} fill="#4f46e5" opacity="0.9" rx="1" />
-      <text x="162" y="76" fontSize="6.5" fill="#818cf8" textAnchor="middle">★ throat</text>
+      <rect x={157} y={80} width={10} height={20} fill="#4f46e5" opacity="0.9" rx="1" />
+      <text x="162" y="74" fontSize="6.5" fill="#818cf8" textAnchor="middle">★ throat</text>
 
       {/* Diverging section */}
-      <path d="M 167 82 L 285 48 L 285 132 L 167 98 Z" fill="#1a1a32" stroke="#818cf8" strokeWidth="1" />
+      <path d="M 167 80 L 285 44 L 285 136 L 167 100 Z" fill="#1a1a32" stroke="#818cf8" strokeWidth="1" />
 
       {/* Exhaust plume */}
-      <path d="M 285 90 Q 322 74 352 64" stroke="#f97316" strokeWidth="2" fill="none" opacity="0.6" />
-      <path d="M 285 90 Q 328 90 358 90" stroke="#fbbf24" strokeWidth="2.5" fill="none" opacity="0.75" />
-      <path d="M 285 90 Q 322 106 352 116" stroke="#f97316" strokeWidth="2" fill="none" opacity="0.6" />
-      <text x="325" y="86" fontSize="7" fill="#fbbf24">Exhaust</text>
+      <path d="M 285 90 Q 318 72 350 62" stroke="#f97316" strokeWidth="2" fill="none" opacity="0.65" />
+      <path d="M 285 90 Q 326 90 358 90" stroke="#fbbf24" strokeWidth="2.5" fill="none" opacity="0.8" />
+      <path d="M 285 90 Q 318 108 350 118" stroke="#f97316" strokeWidth="2" fill="none" opacity="0.65" />
+      <text x="318" y="87" fontSize="7" fill="#fbbf24">Exhaust</text>
 
       {/* ── Dimension lines ── */}
-      {/* Chamber length */}
-      <HDim x1={10} x2={90} y={135} label={`${chamberL} mm`} color="#6366f1" />
-      {/* Throat diameter (vertical) */}
-      <VDim x={172} y1={82} y2={98} label={`⌀ ${throatDia} mm`} color="#818cf8" />
-      {/* Exit diameter (vertical) */}
-      <VDim x={292} y1={48} y2={132} label={`⌀ ${exitDia} mm`} color="#60a5fa" />
+      <HDim x1={10} x2={90} y={138} label={`L_c = ${chamberL} mm`} color="#6366f1" />
+      <VDim x={172} y1={80} y2={100} label={`⌀ ${throatDia} mm`} color="#818cf8" />
+      <VDim x={292} y1={44} y2={136} label={`⌀ ${exitDia} mm`} color="#60a5fa" />
 
-      {/* Pressure label */}
-      <text x="30" y="155" fontSize="7" fill="#6366f1">P_chamber</text>
-      <line x1="50" y1="158" x2="85" y2="117" stroke="#6366f1" strokeWidth="0.8" markerEnd="url(#arr)" />
+      {/* Chamber pressure annotation */}
+      <text x="18" y="155" fontSize="7" fill="#6366f1">P_c = {pcLabel}</text>
+      <line x1="50" y1="157" x2="85" y2="119" stroke="#6366f1" strokeWidth="0.8" />
 
       {/* Metrics bar */}
-      <rect x={0} y={196} width={370} height={24} fill="#0d0d20" />
-      <text x="10" y="212" fontSize="7.5" fill="#a78bfa">Isp = {Isp} s</text>
-      <text x="100" y="212" fontSize="7.5" fill="#60a5fa">Thrust = {thrust} mN</text>
-      <text x="225" y="212" fontSize="7.5" fill="#34d399">ε = {expRatio}</text>
-      <text x="280" y="212" fontSize="7.5" fill="#f59e0b">3U CubeSat</text>
+      <rect x={0} y={200} width={370} height={25} fill="#0d0d20" />
+      <text x="10"  y="216" fontSize="7.5" fill="#a78bfa">Isp = {Isp} s</text>
+      <text x="100" y="216" fontSize="7.5" fill="#60a5fa">F = {thrustLabel}</text>
+      <text x="210" y="216" fontSize="7.5" fill="#34d399">ε = {expRatio}</text>
+      <text x="285" y="216" fontSize="7.5" fill="#f59e0b">P_c = {pcLabel}</text>
+    </svg>
+  );
+}
+
+// ── Shell-and-Tube Heat Exchanger Diagram ─────────────────────────────────────
+function HeatExchangerDiagram({ dp, sim, opt }: { dp: Record<string, unknown>; sim: Record<string, unknown>; opt: Record<string, unknown> }) {
+  const eff = (Number(sim.effectiveness ?? opt.effectiveness ?? dp.effectiveness ?? 0.82) * 100).toFixed(0);
+  const ntu = Number(sim.NTU ?? dp.NTU ?? opt.NTU ?? 3.0).toFixed(2);
+  const area = Number(opt.heat_transfer_area_m2 ?? dp.heat_transfer_area_m2 ?? sim.heat_exchanger_area_m2 ?? 2.0).toFixed(2);
+  const perfScore = Number(sim.performance_ratio ?? sim.performance_score ?? 0.85).toFixed(2);
+  const numTubes = Number(dp.num_tubes ?? opt.num_tubes ?? 7);
+  const tubeCount = Math.min(Math.max(Math.round(numTubes), 3), 9);
+
+  // Tube y-positions (centred in shell)
+  const shellTop = 55, shellBot = 165, shellH = shellBot - shellTop;
+  const tubeSpacing = shellH / (tubeCount + 1);
+  const tubeYs = Array.from({ length: tubeCount }, (_, i) => shellTop + tubeSpacing * (i + 1));
+
+  return (
+    <svg viewBox="0 0 370 240" className="w-full rounded-none bg-[#0a0a1a]">
+      {/* Shell body */}
+      <rect x={60} y={shellTop} width={240} height={shellH} fill="#1e1e38" stroke="#6366f1" strokeWidth="1.5" rx="6" />
+
+      {/* Shell-side flow arrows (hot fluid enters left) */}
+      <polygon points="20,90 35,85 35,95" fill="#ef4444" opacity="0.7" />
+      <line x1={20} y1={90} x2={60} y2={90} stroke="#ef4444" strokeWidth="1.5" opacity="0.7" />
+      <text x="5" y="83" fontSize="6.5" fill="#ef4444">Hot in</text>
+
+      <polygon points="340,130 325,125 325,135" fill="#f97316" opacity="0.6" />
+      <line x1={300} y1={130} x2={325} y2={130} stroke="#f97316" strokeWidth="1.5" opacity="0.6" />
+      <text x="330" y="126" fontSize="6.5" fill="#f97316">Hot out</text>
+
+      {/* Tube bundle */}
+      {tubeYs.map((ty, i) => (
+        <g key={i}>
+          <line x1={60} y1={ty} x2={300} y2={ty} stroke="#60a5fa" strokeWidth={i === Math.floor(tubeCount / 2) ? 2 : 1.2} opacity="0.7" />
+          {/* Tube-side flow direction markers */}
+          <polygon points={`${240},${ty} ${233},${ty - 3} ${233},${ty + 3}`} fill="#60a5fa" opacity="0.5" />
+        </g>
+      ))}
+
+      {/* Tube-side headers */}
+      <rect x={52} y={shellTop} width={12} height={shellH} fill="#2a2a5a" stroke="#818cf8" strokeWidth="1" rx="2" />
+      <rect x={296} y={shellTop} width={12} height={shellH} fill="#2a2a5a" stroke="#818cf8" strokeWidth="1" rx="2" />
+
+      {/* Cold fluid connections */}
+      <line x1={58} y1={shellTop + shellH * 0.3} x2={40} y2={shellTop + shellH * 0.3} stroke="#3b82f6" strokeWidth="1.5" />
+      <polygon points={`${60},${shellTop + shellH * 0.3} ${51},${shellTop + shellH * 0.3 - 4} ${51},${shellTop + shellH * 0.3 + 4}`} fill="#3b82f6" />
+      <text x="2" y={shellTop + shellH * 0.3 - 5} fontSize="6.5" fill="#3b82f6">Cold</text>
+      <text x="2" y={shellTop + shellH * 0.3 + 5} fontSize="6.5" fill="#3b82f6">in</text>
+
+      <line x1={302} y1={shellTop + shellH * 0.7} x2={325} y2={shellTop + shellH * 0.7} stroke="#34d399" strokeWidth="1.5" />
+      <polygon points={`${326},${shellTop + shellH * 0.7} ${318},${shellTop + shellH * 0.7 - 4} ${318},${shellTop + shellH * 0.7 + 4}`} fill="#34d399" />
+      <text x="330" y={shellTop + shellH * 0.7 - 3} fontSize="6.5" fill="#34d399">Cold</text>
+      <text x="330" y={shellTop + shellH * 0.7 + 7} fontSize="6.5" fill="#34d399">out</text>
+
+      {/* Labels */}
+      <text x="180" y={shellTop + 14} fontSize="7" fill="#6366f1" textAnchor="middle">Shell</text>
+      <text x="180" y={shellBot - 6} fontSize="6.5" fill="#818cf8" textAnchor="middle">{tubeCount}-tube bundle</text>
+
+      {/* Dimension: shell length */}
+      <HDim x1={60} x2={300} y={shellBot + 18} label={`A = ${area} m²`} color="#6366f1" />
+
+      {/* Metrics bar */}
+      <rect x={0} y={216} width={370} height={24} fill="#0d0d20" />
+      <text x="10"  y="232" fontSize="7.5" fill="#34d399">ε = {eff}%</text>
+      <text x="80"  y="232" fontSize="7.5" fill="#60a5fa">NTU = {ntu}</text>
+      <text x="175" y="232" fontSize="7.5" fill="#a78bfa">A = {area} m²</text>
+      <text x="275" y="232" fontSize="7.5" fill="#f59e0b">η = {perfScore}</text>
     </svg>
   );
 }
@@ -378,9 +471,9 @@ export default function DesignDiagram({ domain, designParams = {}, simResults = 
   const opt = flatten(optimizedParams as Record<string, unknown>);
 
   const label: Record<string, string> = {
-    electronics_cooling: 'Heat Sink Cross-Section — Electronics Cooling',
-    heat_transfer:       'Thermal Assembly Schematic',
-    propulsion:          'De Laval Nozzle — Cold Gas Thruster',
+    electronics_cooling: 'Finned Heat Sink — Electronics Cooling',
+    heat_transfer:       'Shell-and-Tube Heat Exchanger',
+    propulsion:          'De Laval Convergent-Divergent Nozzle',
     structural:          'Bracket Load & Von Mises Stress Distribution',
     general:             'Agent Pipeline Architecture',
   };
@@ -395,8 +488,10 @@ export default function DesignDiagram({ domain, designParams = {}, simResults = 
       </div>
 
       <ZoomableWrapper>
-        {domain === 'electronics_cooling' || domain === 'heat_transfer'
+        {domain === 'electronics_cooling'
           ? <HeatSinkDiagram dp={dp} sim={sim} opt={opt} />
+          : domain === 'heat_transfer'
+          ? <HeatExchangerDiagram dp={dp} sim={sim} opt={opt} />
           : domain === 'propulsion'
           ? <NozzleDiagram dp={dp} sim={sim} opt={opt} />
           : domain === 'structural'
