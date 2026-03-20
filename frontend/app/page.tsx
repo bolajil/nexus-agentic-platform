@@ -18,6 +18,7 @@ const EXAMPLE_BRIEFS = [
   'Design a heat sink for a 100W power module. Operating environment: 25°C ambient, forced air at 3 m/s. Maximum component temperature: 85°C. Material preference: aluminum. Target thermal resistance < 0.6 °C/W.',
   'Design a cold gas thruster for a 3U CubeSat attitude control system. Required thrust: 50 mN. Propellant: nitrogen. Available pressure: 300 bar. Target delta-v: 10 m/s.',
   'Structural analysis of an aluminum 6061-T6 bracket subjected to 500N axial load and 50 N·m bending moment. Factor of safety target: 2.5. Minimize mass.',
+  'Design a de Laval convergent-divergent nozzle for a liquid bipropellant rocket engine. Chamber pressure: 5 MPa. Propellant: LOX/RP-1 with O/F ratio 2.5. Target sea-level thrust: 2000 N. Expansion ratio: 10:1. Chamber temperature: 3500 K. Optimize for maximum specific impulse (Isp > 280 s).',
 ];
 
 const AGENT_ORDER = ['requirements', 'research', 'design', 'simulation', 'optimization', 'report'];

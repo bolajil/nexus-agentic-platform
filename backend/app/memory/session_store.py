@@ -55,26 +55,7 @@ class SessionStore:
         self._initialized = False
 
     def initialize(self) -> bool:
-        """Connect to Redis. Falls back to in-memory if unavailable."""
-        try:
-            import redis
-
-            client = redis.from_url(
-                self.redis_url,
-                decode_responses=True,
-                socket_connect_timeout=3,
-                socket_timeout=3,
-            )
-            client.ping()
-            self._client = client
-            self._initialized = True
-            logger.info(f"Connected to Redis at {self.redis_url}")
-            return True
-        except ImportError:
-            logger.warning("redis package not installed — using in-memory store")
-        except Exception as e:
-            logger.warning(f"Redis unavailable ({e}) — using in-memory store")
-
+        """Use in-memory store — sessions are intentionally non-persistent across restarts."""
         self._client = InMemorySessionStore()
         self._initialized = True
         return True
