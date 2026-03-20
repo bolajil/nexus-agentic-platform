@@ -223,40 +223,82 @@ print("NEXUS_CAD_OK:{width:.0f}x{depth:.0f}mm_{num_fins}fins")
 
 
 def _beam_script(params: dict, out_step: str, out_stl: str) -> str:
-    """Steel I-beam / bracket: two flanges + web."""
+    """
+    Al 6061-T6 cantilever L-bracket matching the structural diagram:
+      - Vertical mounting plate with 4 bolt holes
+      - Horizontal cantilever arm
+      - Triangular gusset for bending stiffness
+    Dimensions derived from cross-section area and safety factor.
+    """
     p = params.get("primary_parameters", {})
 
-    # Cross-section area → rough geometry
-    area_m2  = _pval(p, ["cross_section_area_m2", "cross_section_area_cm2"], 0.001)
-    if area_m2 > 1:
-        area_m2 /= 10000   # cm² → m²
+    # Cross-section area → arm thickness
+    area_cm2 = _pval(p, ["cross_section_area_cm2", "cross_section_area_m2"], 25.0)
+    if area_cm2 < 1:
+        area_cm2 *= 10000   # m² → cm²
+    arm_side   = math.sqrt(area_cm2) * 10      # mm — equivalent square side
+    wall_t     = max(8.0, arm_side * 0.20)     # wall/arm thickness
+    arm_w      = max(40.0, arm_side * 1.2)     # arm width (Y)
+    arm_t      = wall_t                         # arm thickness (Z) = wall thickness
 
-    side       = math.sqrt(area_m2) * 1000        # mm — equiv square side
-    height     = max(40.0, side * 1.5)
-    width      = max(30.0, side * 1.2)
-    flange_t   = max(5.0, height * 0.12)
-    web_t      = max(4.0, width * 0.08)
-    length_mm  = _pval(p, ["beam_length_m", "length_mm"], 2.0) * 1000
-    if length_mm < 50:
-        length_mm *= 1000   # already in mm
+    # Arm length — scale from bending scenario (500N × arm gives ~50 N·m → 100mm)
+    arm_len    = max(100.0, arm_side * 3.0)
 
-    web_h = height - 2 * flange_t
+    # Mounting plate
+    plate_t    = wall_t * 1.3
+    plate_w    = arm_w  * 1.4
+    plate_h    = arm_len * 0.55
+
+    # Gusset (right-triangle block under arm, at plate junction)
+    gusset_d   = arm_len * 0.28
+    gusset_h   = plate_h * 0.35
+
+    # Arm Y-offset to centre it on plate
+    arm_y0     = (plate_w - arm_w) / 2
+    # Arm sits at mid-height of plate
+    arm_z0     = plate_h * 0.40
+
+    # Bolt hole radius (M8 clearance)
+    hole_r     = 4.5
+    # Hole positions on mounting plate
+    hy1, hy2   = plate_w * 0.20, plate_w * 0.80
+    hz1, hz2   = plate_h * 0.18, plate_h * 0.82
 
     return f"""\
 import FreeCAD, Part
-doc = FreeCAD.newDocument("StructuralBeam")
-flange1  = Part.makeBox({width:.2f}, {flange_t:.2f}, {length_mm:.2f})
-flange2  = Part.makeBox({width:.2f}, {flange_t:.2f}, {length_mm:.2f},
-                         FreeCAD.Vector(0, {height - flange_t:.2f}, 0))
-web      = Part.makeBox({web_t:.2f}, {web_h:.2f}, {length_mm:.2f},
-                         FreeCAD.Vector({(width - web_t) / 2:.2f}, {flange_t:.2f}, 0))
-shape    = flange1.fuse(flange2).fuse(web)
-obj = doc.addObject("Part::Feature", "IBeam")
-obj.Shape = shape
+doc = FreeCAD.newDocument("AlBracket")
+
+# ── Mounting plate (YZ plane, X = thickness) ──────────────────────────────────
+plate = Part.makeBox({plate_t:.2f}, {plate_w:.2f}, {plate_h:.2f})
+
+# ── Cantilever arm (extends in +X from plate face) ───────────────────────────
+arm = Part.makeBox({arm_len:.2f}, {arm_w:.2f}, {arm_t:.2f},
+                    FreeCAD.Vector({plate_t:.2f}, {arm_y0:.2f}, {arm_z0:.2f}))
+
+# ── Gusset (triangular support under arm at plate junction) ───────────────────
+gusset = Part.makeBox({gusset_d:.2f}, {arm_w:.2f}, {gusset_h:.2f},
+                       FreeCAD.Vector({plate_t:.2f}, {arm_y0:.2f}, {arm_z0 - gusset_h:.2f}))
+
+bracket = plate.fuse(arm).fuse(gusset)
+
+# ── Bolt holes through mounting plate (X-axis direction) ─────────────────────
+h1 = Part.makeCylinder({hole_r:.2f}, {plate_t + 2:.2f},
+      FreeCAD.Vector(-1, {hy1:.2f}, {hz1:.2f}), FreeCAD.Vector(1, 0, 0))
+h2 = Part.makeCylinder({hole_r:.2f}, {plate_t + 2:.2f},
+      FreeCAD.Vector(-1, {hy2:.2f}, {hz1:.2f}), FreeCAD.Vector(1, 0, 0))
+h3 = Part.makeCylinder({hole_r:.2f}, {plate_t + 2:.2f},
+      FreeCAD.Vector(-1, {hy1:.2f}, {hz2:.2f}), FreeCAD.Vector(1, 0, 0))
+h4 = Part.makeCylinder({hole_r:.2f}, {plate_t + 2:.2f},
+      FreeCAD.Vector(-1, {hy2:.2f}, {hz2:.2f}), FreeCAD.Vector(1, 0, 0))
+
+bracket = bracket.cut(h1).cut(h2).cut(h3).cut(h4)
+
+obj = doc.addObject("Part::Feature", "Al6061Bracket")
+obj.Shape = bracket
 doc.recompute()
 Part.export([obj.Shape], "{_fwd(out_step)}")
 obj.Shape.exportStl("{_fwd(out_stl)}")
-print("NEXUS_CAD_OK:{width:.0f}x{height:.0f}mm_L={length_mm:.0f}mm")
+print("NEXUS_CAD_OK:arm={arm_len:.0f}mm_w={arm_w:.0f}mm_t={arm_t:.0f}mm_4bolts")
 """
 
 
