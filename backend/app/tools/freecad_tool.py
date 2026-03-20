@@ -67,9 +67,9 @@ def _find_freecad_exe() -> str | None:
 
 # ── Script generators ─────────────────────────────────────────────────────────
 
-def _esc(path: str) -> str:
-    """Escape Windows paths for embedding in Python string literals."""
-    return path.replace("\\", "\\\\")
+def _fwd(path: str) -> str:
+    """Convert Windows backslashes to forward slashes (Python on Windows accepts both)."""
+    return path.replace("\\", "/")
 
 
 def _heat_exchanger_script(params: dict, out_step: str, out_stl: str) -> str:
@@ -106,58 +106,83 @@ shell = Part.makeCylinder({shell_r:.1f}, {shell_len:.1f})
 obj = doc.addObject("Part::Feature", "ShellAndTube")
 obj.Shape = shell
 doc.recompute()
-Part.export([obj.Shape], r"{_esc(out_step)}")
-obj.Shape.exportStl(r"{_esc(out_stl)}")
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
 print("NEXUS_CAD_OK:{shell_r:.0f}mm_shell_{num_tubes}tubes")
 """
 
 
 def _rocket_nozzle_script(params: dict, out_step: str, out_stl: str) -> str:
-    """De Laval convergent-divergent nozzle built from cone/cylinder primitives."""
+    """
+    De Laval nozzle — proportions match the 2D diagram schematic:
+      chamber : convergent : divergent  ≈  80 : 72 : 118  (diagram units)
+      3-segment parabolic bell (steep→medium→shallow) + hollow bore + injector flange
+    """
     p = params.get("primary_parameters", {})
 
-    throat_mm  = _pval(p, ["throat_diameter_mm", "throat_radius_mm"], 25.0)
-    if "throat_diameter_mm" in str(p):
-        throat_r = throat_mm / 2
-    else:
-        throat_r = throat_mm
+    throat_mm = _pval(p, ["throat_diameter_mm", "throat_radius_mm"], 25.0)
+    throat_r  = throat_mm / 2 if "throat_diameter_mm" in str(p) else throat_mm
 
-    exp_ratio  = _pval(p, ["expansion_ratio", "area_ratio"], 8.0)
+    exp_ratio  = _pval(p, ["expansion_ratio", "area_ratio"], 10.0)
     exit_r     = throat_r * math.sqrt(exp_ratio)
-    chamber_r  = throat_r * 2.5          # typical chamber-to-throat area ratio ~5-8
-    wall_t     = max(3.0, throat_r * 0.1)
+    chamber_r  = throat_r * 3.2           # chamber/throat area ratio ≈ 10 → matches diagram
+    wall_t     = max(4.0, throat_r * 0.14)
 
-    chamber_len  = chamber_r * 2.0
-    conv_len     = chamber_r * 1.2
-    div_len      = throat_r * math.sqrt(exp_ratio) * 2.5
+    # Lengths proportional to diagram (80 : 72 : 118)
+    chamber_len = chamber_r * 2.5         # 80 parts
+    conv_len    = chamber_len * 0.90      # 72 parts
+    bell_len    = chamber_len * 1.475     # 118 parts
+
+    # Bell: 3 frustum segments approximating parabolic profile
+    # Steep (38%), medium (34%), shallow (28%) — matches bell opening angle
+    r1 = throat_r + (exit_r - throat_r) * 0.38   # 38% of way to exit
+    r2 = throat_r + (exit_r - throat_r) * 0.72   # 72% of way to exit
+    z0 = chamber_len + conv_len
+    z1 = z0 + bell_len * 0.38
+    z2 = z0 + bell_len * 0.72
+    z3 = z0 + bell_len
+
+    # Injector flange
+    flange_r = chamber_r + wall_t * 2.0
+    flange_t = wall_t * 2.2
 
     return f"""\
 import FreeCAD, Part
-doc = FreeCAD.newDocument("RocketNozzle")
+doc = FreeCAD.newDocument("deLavalNozzle")
 
-# Outer profile: chamber cylinder + convergent frustum + divergent frustum
-chamber  = Part.makeCylinder({chamber_r:.2f}, {chamber_len:.2f})
-convergent = Part.makeCone({chamber_r:.2f}, {throat_r:.2f}, {conv_len:.2f})
-convergent.translate(FreeCAD.Vector(0, 0, {chamber_len:.2f}))
-divergent  = Part.makeCone({throat_r:.2f}, {exit_r:.2f}, {div_len:.2f})
-divergent.translate(FreeCAD.Vector(0, 0, {chamber_len + conv_len:.2f}))
-outer = chamber.fuse(convergent).fuse(divergent)
+# ── Outer shell ───────────────────────────────────────────────────────────────
+flange  = Part.makeCylinder({flange_r:.2f}, {flange_t:.2f})
+chamber = Part.makeCylinder({chamber_r + wall_t:.2f}, {chamber_len:.2f})
+chamber.translate(FreeCAD.Vector(0, 0, {flange_t:.2f}))
+conv    = Part.makeCone({chamber_r + wall_t:.2f}, {throat_r + wall_t:.2f}, {conv_len:.2f})
+conv.translate(FreeCAD.Vector(0, 0, {flange_t + chamber_len:.2f}))
+bell1   = Part.makeCone({throat_r + wall_t:.2f}, {r1 + wall_t:.2f}, {z1 - z0:.2f})
+bell1.translate(FreeCAD.Vector(0, 0, {flange_t + z0:.2f}))
+bell2   = Part.makeCone({r1 + wall_t:.2f}, {r2 + wall_t:.2f}, {z2 - z1:.2f})
+bell2.translate(FreeCAD.Vector(0, 0, {flange_t + z1:.2f}))
+bell3   = Part.makeCone({r2 + wall_t:.2f}, {exit_r + wall_t:.2f}, {z3 - z2:.2f})
+bell3.translate(FreeCAD.Vector(0, 0, {flange_t + z2:.2f}))
+outer   = flange.fuse(chamber).fuse(conv).fuse(bell1).fuse(bell2).fuse(bell3)
 
-# Inner profile (hollow): slightly smaller radii
-chamber_i  = Part.makeCylinder({chamber_r - wall_t:.2f}, {chamber_len:.2f})
-convergent_i = Part.makeCone({chamber_r - wall_t:.2f}, {max(1, throat_r - wall_t):.2f}, {conv_len:.2f})
-convergent_i.translate(FreeCAD.Vector(0, 0, {chamber_len:.2f}))
-divergent_i  = Part.makeCone({max(1, throat_r - wall_t):.2f}, {exit_r - wall_t:.2f}, {div_len:.2f})
-divergent_i.translate(FreeCAD.Vector(0, 0, {chamber_len + conv_len:.2f}))
-inner = chamber_i.fuse(convergent_i).fuse(divergent_i)
+# ── Inner bore (flow path) ────────────────────────────────────────────────────
+bore_ch = Part.makeCylinder({chamber_r:.2f}, {flange_t + chamber_len + 0.1:.2f})
+bore_cv = Part.makeCone({chamber_r:.2f}, {throat_r:.2f}, {conv_len:.2f})
+bore_cv.translate(FreeCAD.Vector(0, 0, {flange_t + chamber_len:.2f}))
+bore_b1 = Part.makeCone({throat_r:.2f}, {r1:.2f}, {z1 - z0:.2f})
+bore_b1.translate(FreeCAD.Vector(0, 0, {flange_t + z0:.2f}))
+bore_b2 = Part.makeCone({r1:.2f}, {r2:.2f}, {z2 - z1:.2f})
+bore_b2.translate(FreeCAD.Vector(0, 0, {flange_t + z1:.2f}))
+bore_b3 = Part.makeCone({r2:.2f}, {exit_r:.2f}, {z3 - z2:.2f})
+bore_b3.translate(FreeCAD.Vector(0, 0, {flange_t + z2:.2f}))
+inner   = bore_ch.fuse(bore_cv).fuse(bore_b1).fuse(bore_b2).fuse(bore_b3)
 
 nozzle = outer.cut(inner)
 obj = doc.addObject("Part::Feature", "deLavalNozzle")
 obj.Shape = nozzle
 doc.recompute()
-Part.export([obj.Shape], r"{_esc(out_step)}")
-obj.Shape.exportStl(r"{_esc(out_stl)}")
-print("NEXUS_CAD_OK:throat={throat_r:.1f}mm_exit={exit_r:.1f}mm_ratio={exp_ratio:.1f}")
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
+print("NEXUS_CAD_OK:throat={throat_r:.1f}mm_exit={exit_r:.1f}mm_bell={bell_len:.0f}mm")
 """
 
 
@@ -191,8 +216,8 @@ shape = Part.makeBox({width:.2f}, {depth:.2f}, {base_h:.2f})
 obj = doc.addObject("Part::Feature", "FinnedHeatsink")
 obj.Shape = shape
 doc.recompute()
-Part.export([obj.Shape], r"{_esc(out_step)}")
-obj.Shape.exportStl(r"{_esc(out_stl)}")
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
 print("NEXUS_CAD_OK:{width:.0f}x{depth:.0f}mm_{num_fins}fins")
 """
 
@@ -229,8 +254,8 @@ shape    = flange1.fuse(flange2).fuse(web)
 obj = doc.addObject("Part::Feature", "IBeam")
 obj.Shape = shape
 doc.recompute()
-Part.export([obj.Shape], r"{_esc(out_step)}")
-obj.Shape.exportStl(r"{_esc(out_stl)}")
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
 print("NEXUS_CAD_OK:{width:.0f}x{height:.0f}mm_L={length_mm:.0f}mm")
 """
 

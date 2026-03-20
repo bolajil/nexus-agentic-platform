@@ -95,6 +95,29 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.debug(f"Telemetry not available: {e}")
 
+    # ── Auto-connect tools ────────────────────────────────────────────
+    try:
+        from app.routers.tools import _run_connector, _connections
+        from app.routers.tools import ToolConfig
+        auto_tools = ["openai", "scipy", "numpy", "sympy", "nist"]
+        for tid in auto_tools:
+            try:
+                result = await _run_connector(tid, None)
+                _connections[tid] = result
+                logger.info(f"Tool auto-connected: {tid} → {result.get('status')}")
+            except Exception as te:
+                logger.debug(f"Tool auto-connect failed for {tid}: {te}")
+        # FreeCAD — attempt detection with known path
+        try:
+            fc_cfg = ToolConfig(path=r"C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe")
+            fc_result = await _run_connector("freecad", fc_cfg)
+            _connections["freecad"] = fc_result
+            logger.info(f"FreeCAD auto-detected → {fc_result.get('status')}")
+        except Exception as fe:
+            logger.debug(f"FreeCAD auto-detect skipped: {fe}")
+    except Exception as e:
+        logger.warning(f"Tool auto-connect startup failed: {e}")
+
     logger.info("NEXUS Platform ready — all systems nominal")
     yield
 

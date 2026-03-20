@@ -582,7 +582,7 @@ export default function ToolConnectionsPage() {
   const [customTools, setCustomTools] = useState<ToolDef[]>([]);
   const [filter, setFilter] = useState<string>('all');
 
-  // Load existing connections from backend on mount
+  // Load existing connections from backend on mount; auto-connect any missing auto tools
   useEffect(() => {
     fetch('/api/tools')
       .then(r => r.json())
@@ -590,8 +590,17 @@ export default function ToolConnectionsPage() {
         const map: Record<string, Record<string, unknown>> = {};
         list.forEach(item => { map[item.id] = item; });
         setStates(map);
+        // Auto-connect any autoConnect tools not already connected
+        const missing = TOOLS.filter(
+          t => t.autoConnect && map[t.id]?.status !== 'connected'
+        );
+        missing.forEach(t => connect(t));
       })
-      .catch(() => {});
+      .catch(() => {
+        // Backend not ready yet — connect auto tools anyway
+        TOOLS.filter(t => t.autoConnect).forEach(t => connect(t));
+      });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const setToolState = (id: string, state: Record<string, unknown>) => {
