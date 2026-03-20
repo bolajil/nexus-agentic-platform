@@ -61,7 +61,7 @@ const TOOLS: ToolDef[] = [
     autoConnect: false,
     installHint: 'Download free at freecad.org',
     configFields: [
-      { key: 'path', label: 'Executable path (optional)', placeholder: 'C:\\Program Files\\FreeCAD 1.0\\bin\\freecad.exe' },
+      { key: 'path', label: 'Executable path (optional)', placeholder: 'C:\\Program Files\\FreeCAD 1.0\\bin\\FreeCADCmd.exe' },
     ],
   },
   {

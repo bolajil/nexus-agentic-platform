@@ -178,29 +178,60 @@ async def _connect_nist(cfg: Optional[ToolConfig]) -> dict:
 
 
 async def _connect_freecad(cfg: Optional[ToolConfig]) -> dict:
-    cmd = (cfg.path if cfg and cfg.path else None) or "freecad"
-    try:
-        result = subprocess.run(
-            [cmd, "--version"], capture_output=True, text=True, timeout=8
-        )
-        output = (result.stdout + result.stderr).strip()
-        if "FreeCAD" in output or result.returncode == 0:
-            return {
-                "status": "connected",
-                "version": output[:80],
-                "test_result": "FreeCAD executable found and responsive",
-                "capabilities": ["part_design", "fea_prep", "step_export", "stl_export", "python_scripting"],
-            }
-        return {"status": "unavailable", "error": f"FreeCAD returned unexpected output: {output[:80]}"}
-    except FileNotFoundError:
+    import os
+
+    provided_path = cfg.path if cfg and cfg.path else None
+
+    # Build candidate executables to try
+    candidates = []
+    if provided_path:
+        bin_dir = os.path.dirname(provided_path)
+        # Prefer FreeCADCmd.exe (console version — no GUI, responds to CLI flags)
+        candidates.append(os.path.join(bin_dir, "FreeCADCmd.exe"))
+        candidates.append(os.path.join(bin_dir, "FreeCADCmd"))
+        candidates.append(provided_path)  # GUI exe as last resort
+    candidates += ["FreeCADCmd", "freecad", "FreeCAD"]
+
+    for cmd in candidates:
+        # Quick existence check for absolute paths (avoids spawning GUI processes)
+        if os.path.isabs(cmd) and not os.path.isfile(cmd):
+            continue
+
+        for flag in ["--version", "-v", "--help"]:
+            try:
+                result = subprocess.run(
+                    [cmd, flag], capture_output=True, text=True, timeout=6
+                )
+                output = (result.stdout + result.stderr).strip()
+                if output or result.returncode == 0:
+                    version_line = output.split("\n")[0][:80] if output else f"{os.path.basename(cmd)} executable"
+                    return {
+                        "status": "connected",
+                        "version": version_line,
+                        "test_result": f"FreeCAD found at {cmd}",
+                        "capabilities": ["part_design", "fea_prep", "step_export", "stl_export", "python_scripting"],
+                    }
+            except FileNotFoundError:
+                break  # this candidate doesn't exist — try next
+            except subprocess.TimeoutExpired:
+                continue
+            except Exception:
+                continue
+
+    # If a path was given and the file exists, report it as found even without CLI output
+    if provided_path and os.path.isfile(provided_path):
         return {
-            "status": "unavailable",
-            "error": "freecad not in PATH. Install: https://www.freecad.org/downloads.php",
+            "status": "connected",
+            "version": os.path.basename(provided_path),
+            "test_result": f"FreeCAD found at {provided_path} (GUI mode — use FreeCADCmd.exe for scripting)",
+            "capabilities": ["part_design", "fea_prep", "step_export", "stl_export", "python_scripting"],
         }
-    except subprocess.TimeoutExpired:
-        return {"status": "error", "error": "FreeCAD launch timed out"}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+
+    hint = f"Set path to your FreeCAD bin directory, e.g. C:\\Program Files\\FreeCAD 1.0\\bin\\FreeCADCmd.exe"
+    return {
+        "status": "unavailable",
+        "error": f"FreeCAD not found. {hint}",
+    }
 
 
 async def _connect_openfoam(cfg: Optional[ToolConfig]) -> dict:
