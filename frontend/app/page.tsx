@@ -75,11 +75,13 @@ export default function MissionControl() {
     abortRef.current = new AbortController();
 
     try {
+      const token = localStorage.getItem('nexus_access_token');
       const res = await fetch('/api/sessions', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...(userIdRef.current ? { 'X-User-ID': userIdRef.current } : {}),
+          ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
         },
         body: JSON.stringify({
           engineering_brief: brief,

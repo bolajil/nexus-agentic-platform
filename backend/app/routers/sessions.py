@@ -117,8 +117,21 @@ async def create_session(
     session_id = str(uuid.uuid4())
     session_name = body.session_name or f"Session {session_id[:8]}"
 
-    # Stable user ID from the frontend (persisted in localStorage)
-    user_id = request.headers.get("X-User-ID") or session_id
+    # Prefer the authenticated user (from JWT) for Langfuse user tracking.
+    # Falls back to the anonymous localStorage UUID sent in X-User-ID.
+    user_id = None
+    try:
+        from app.core.auth_utils import decode_access_token, get_user_by_id
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            payload = decode_access_token(auth_header[7:])
+            user = get_user_by_id(payload["sub"])
+            if user:
+                user_id = f"{user['name']} <{user['email']}>"
+    except Exception:
+        pass
+    if not user_id:
+        user_id = request.headers.get("X-User-ID") or session_id
 
     # Langfuse: track session creation event
     try:

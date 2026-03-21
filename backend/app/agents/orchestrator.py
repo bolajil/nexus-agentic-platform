@@ -302,25 +302,32 @@ class NEXUSOrchestrator:
         brief = initial_state.get("engineering_brief", "")
         user_id = user_id or session_id
 
-        # ── Langfuse root span for the entire pipeline ─────────────────────────
+        # ── Langfuse root TRACE for the entire pipeline ────────────────────────
+        # Must use lf.trace() (not lf.start_span()) so Langfuse v3 correctly
+        # attributes token costs and rolls them up under this root trace.
         lf = self._get_langfuse()
-        pipeline_span = self._lf_span(lf, "nexus-pipeline", session_id, {
-            "brief_preview": brief[:200],
-            "mode": "langgraph" if self._graph else "sequential",
-            "user_id": user_id,
-        })
-
-        # Extract trace_id so all 6 agent LLM calls nest under this root trace
-        # — this makes token costs roll up to the pipeline level in Langfuse
-        lf_trace_id = None
+        lf_root_trace = None
+        lf_trace_id   = None
         try:
-            if pipeline_span is not None:
-                lf_trace_id = getattr(pipeline_span, 'trace_id', None)
-        except Exception:
-            pass
+            if lf is not None:
+                lf_root_trace = lf.trace(
+                    name="nexus-pipeline",
+                    user_id=user_id,
+                    session_id=session_id,
+                    input={"brief": brief[:200]},
+                    metadata={
+                        "mode": "langgraph" if self._graph else "sequential",
+                    },
+                    tags=["nexus", getattr(self.config, 'APP_ENV', 'development')],
+                )
+                lf_trace_id = lf_root_trace.id
+                logger.info(f"[{session_id}] Langfuse root trace created: {lf_trace_id} user={user_id}")
+        except Exception as lf_err:
+            logger.warning(f"[{session_id}] Langfuse trace init failed: {lf_err}")
 
-        # Inject trace context into state so all agents can access it
-        initial_state["lf_trace_id"] = lf_trace_id
+        # Inject trace context into state — agents read these to nest their LLM
+        # generations under the root trace, which makes costs roll up correctly.
+        initial_state["lf_trace_id"]    = lf_trace_id
         initial_state["session_user_id"] = user_id
 
         try:
@@ -352,12 +359,16 @@ class NEXUSOrchestrator:
                 },
             })
 
-            self._lf_end_span(pipeline_span, output={
-                "status": status,
-                "domain": domain,
-                "report_title": report_title,
-                "agents_completed": len(final_state.get("provenance_chain", [])),
-            })
+            try:
+                if lf_root_trace is not None:
+                    lf_root_trace.update(output={
+                        "status": status,
+                        "domain": domain,
+                        "report_title": report_title,
+                        "agents_completed": len(final_state.get("provenance_chain", [])),
+                    })
+            except Exception:
+                pass
             if lf:
                 try: lf.flush()
                 except Exception: pass
@@ -366,7 +377,11 @@ class NEXUSOrchestrator:
 
         except Exception as e:
             logger.error(f"[{session_id}] Pipeline fatal error: {e}", exc_info=True)
-            self._lf_end_span(pipeline_span, error=str(e))
+            try:
+                if lf_root_trace is not None:
+                    lf_root_trace.update(output={"error": str(e)})
+            except Exception:
+                pass
             if lf:
                 try: lf.flush()
                 except Exception: pass
