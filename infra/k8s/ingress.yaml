@@ -1,0 +1,106 @@
+# Nginx Ingress Controller with TLS termination.
+# AWS:   annotations use alb.ingress.kubernetes.io/* (AWS Load Balancer Controller)
+# GCP:   use kubernetes.io/ingress.class: "gce" + managed certificate
+# Azure: use kubernetes.io/ingress.class: "azure/application-gateway"
+#
+# Apply the nginx ingress controller first:
+#   helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace \
+#     --set controller.service.annotations."service\.beta\.kubernetes\.io/aws-load-balancer-type"=nlb
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: nexus-ingress
+  namespace: nexus
+  annotations:
+    # Nginx Ingress
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"          # CAD file uploads
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"       # long pipeline runs
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://nexus.yourdomain.com"
+
+    # Rate limiting (maps to slowapi rate limiting on backend)
+    nginx.ingress.kubernetes.io/limit-rps: "20"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+
+    # SSE streaming — disable buffering for real-time pipeline events
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+
+    # TLS cert managed by cert-manager
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # AWS-specific: uncomment to use ALB instead of nginx
+    # kubernetes.io/ingress.class: alb
+    # alb.ingress.kubernetes.io/scheme: internet-facing
+    # alb.ingress.kubernetes.io/target-type: ip
+    # alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:REGION:ACCOUNT:certificate/CERT_ID
+    # alb.ingress.kubernetes.io/ssl-policy: ELBSecurityPolicy-TLS13-1-2-2021-06
+    # alb.ingress.kubernetes.io/wafv2-acl-arn: arn:aws:wafv2:REGION:ACCOUNT:regional/webacl/nexus-waf/ID
+
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - nexus.yourdomain.com
+      secretName: nexus-tls-cert
+  rules:
+    - host: nexus.yourdomain.com
+      http:
+        paths:
+          # API and SSE endpoints → backend
+          - path: /api(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: nexus-backend
+                port:
+                  number: 80
+          # Health probes → backend (for load balancer health checks)
+          - path: /health
+            pathType: Exact
+            backend:
+              service:
+                name: nexus-backend
+                port:
+                  number: 80
+          - path: /ready
+            pathType: Exact
+            backend:
+              service:
+                name: nexus-backend
+                port:
+                  number: 80
+          # All other traffic → frontend
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: nexus-frontend
+                port:
+                  number: 80
+
+---
+# cert-manager ClusterIssuer for Let's Encrypt
+# Install cert-manager first:
+#   helm install cert-manager jetstack/cert-manager --namespace cert-manager \
+#     --create-namespace --set installCRDs=true
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: devops@yourdomain.com      # ← update
+    privateKeySecretRef:
+      name: letsencrypt-prod-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx

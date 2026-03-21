@@ -1,0 +1,84 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nexus-chromadb
+  namespace: nexus
+  labels:
+    app: nexus-chromadb
+    component: vectordb
+spec:
+  serviceName: nexus-chromadb
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nexus-chromadb
+  template:
+    metadata:
+      labels:
+        app: nexus-chromadb
+    spec:
+      securityContext:
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: chromadb
+          image: chromadb/chroma:0.5.23
+          ports:
+            - containerPort: 8000
+          env:
+            - name: IS_PERSISTENT
+              value: "TRUE"
+            - name: PERSIST_DIRECTORY
+              value: /chroma/chroma
+            - name: ANONYMIZED_TELEMETRY
+              value: "FALSE"
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "4Gi"           # vector ops are memory-intensive
+          livenessProbe:
+            httpGet:
+              path: /api/v1/heartbeat
+              port: 8000
+            initialDelaySeconds: 20
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/v1/heartbeat
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          volumeMounts:
+            - name: chroma-data
+              mountPath: /chroma/chroma
+          securityContext:
+            allowPrivilegeEscalation: false
+  volumeClaimTemplates:
+    - metadata:
+        name: chroma-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3
+        resources:
+          requests:
+            storage: 20Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-chromadb
+  namespace: nexus
+  labels:
+    app: nexus-chromadb
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: nexus-chromadb
+  ports:
+    - port: 8000
+      targetPort: 8000

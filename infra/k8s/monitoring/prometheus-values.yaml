@@ -1,0 +1,138 @@
+# Helm values for kube-prometheus-stack
+# Install:
+#   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+#   helm upgrade --install prometheus prometheus-community/kube-prometheus-stack \
+#     --namespace monitoring --create-namespace \
+#     -f infra/k8s/monitoring/prometheus-values.yaml
+
+nameOverride: prometheus
+
+prometheus:
+  prometheusSpec:
+    retention: 30d
+    retentionSize: "50GB"
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          resources:
+            requests:
+              storage: 100Gi
+    # Scrape NEXUS backend
+    additionalScrapeConfigs:
+      - job_name: nexus-backend
+        kubernetes_sd_configs:
+          - role: pod
+            namespaces:
+              names: [nexus]
+        relabel_configs:
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+            action: keep
+            regex: "true"
+          - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+            action: replace
+            target_label: __metrics_path__
+          - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+            action: replace
+            regex: ([^:]+)(?::\d+)?;(\d+)
+            replacement: $1:$2
+            target_label: __address__
+    resources:
+      requests:
+        cpu: 500m
+        memory: 2Gi
+      limits:
+        cpu: 2000m
+        memory: 8Gi
+
+grafana:
+  enabled: true
+  adminPassword: "REPLACE_WITH_SECURE_PASSWORD"
+  persistence:
+    enabled: true
+    storageClassName: gp3
+    size: 10Gi
+  # Pre-load NEXUS dashboard
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: nexus
+          orgId: 1
+          folder: NEXUS
+          type: file
+          disableDeletion: false
+          options:
+            path: /var/lib/grafana/dashboards/nexus
+  grafana.ini:
+    server:
+      domain: nexus.yourdomain.com
+      root_url: "%(protocol)s://%(domain)s/grafana/"
+    auth:
+      disable_login_form: false
+    security:
+      allow_embedding: true
+      cookie_secure: true
+      cookie_samesite: lax
+
+alertmanager:
+  enabled: true
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: gp3
+          resources:
+            requests:
+              storage: 5Gi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      group_by: ["alertname", "cluster", "service"]
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 12h
+      receiver: "slack-notifications"
+    receivers:
+      - name: "slack-notifications"
+        slack_configs:
+          - api_url: "REPLACE_WITH_SLACK_WEBHOOK_URL"
+            channel: "#nexus-alerts"
+            title: "{{ .GroupLabels.alertname }}"
+            text: "{{ range .Alerts }}{{ .Annotations.summary }}\n{{ end }}"
+
+# Custom NEXUS alert rules
+additionalPrometheusRulesMap:
+  nexus-alerts:
+    groups:
+      - name: nexus.rules
+        rules:
+          - alert: NexusBackendDown
+            expr: up{job="nexus-backend"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "NEXUS backend is down"
+          - alert: NexusPipelineLatencyHigh
+            expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="nexus-backend",path=~"/api/pipeline.*"}[5m])) > 120
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "NEXUS pipeline p95 latency > 2 min"
+          - alert: NexusHighErrorRate
+            expr: rate(http_requests_total{job="nexus-backend",status=~"5.."}[5m]) / rate(http_requests_total{job="nexus-backend"}[5m]) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "NEXUS backend error rate > 5%"
+          - alert: NexusMemoryPressure
+            expr: container_memory_working_set_bytes{namespace="nexus"} / container_spec_memory_limit_bytes{namespace="nexus"} > 0.85
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "NEXUS pod memory usage > 85%"

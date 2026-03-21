@@ -1,0 +1,95 @@
+# In production: prefer managed Redis — AWS ElastiCache, GCP Memorystore, Azure Cache.
+# This manifest is for teams that must run Redis in-cluster.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nexus-redis
+  namespace: nexus
+  labels:
+    app: nexus-redis
+    component: cache
+spec:
+  serviceName: nexus-redis
+  replicas: 1           # single replica; use managed service for HA
+  selector:
+    matchLabels:
+      app: nexus-redis
+  template:
+    metadata:
+      labels:
+        app: nexus-redis
+    spec:
+      securityContext:
+        runAsUser: 999
+        fsGroup: 999
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - --requirepass
+            - $(REDIS_PASSWORD)
+            - --maxmemory
+            - 512mb
+            - --maxmemory-policy
+            - allkeys-lru
+            - --save
+            - "60 1"
+            - --appendonly
+            - "yes"
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: nexus-secrets
+                  key: REDIS_PASSWORD
+          ports:
+            - containerPort: 6379
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+          livenessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          securityContext:
+            allowPrivilegeEscalation: false
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: gp3             # use cloud-specific StorageClass
+        resources:
+          requests:
+            storage: 10Gi
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-redis
+  namespace: nexus
+  labels:
+    app: nexus-redis
+spec:
+  type: ClusterIP
+  clusterIP: None                        # headless for StatefulSet DNS
+  selector:
+    app: nexus-redis
+  ports:
+    - port: 6379
+      targetPort: 6379
