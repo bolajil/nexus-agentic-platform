@@ -1,8 +1,8 @@
 # NEXUS — Multi-Agent Agentic Engineering Platform
 
-> **Production-grade AI platform that autonomously routes engineering briefs through a 6-agent LangGraph pipeline — from requirements parsing to fully compiled engineering reports.**
+> **Production-grade multi-agent AI platform that autonomously routes engineering briefs through a 6-agent LangGraph pipeline — from requirements parsing to fully compiled engineering reports with parametric CAD geometry.**
 
-Built as a portfolio showcase for the **Senior AI Engineer – Agentic Platform Lead** role at a defense and space technology organisation. Every architectural decision maps directly to the role's requirements: multi-agent orchestration, distributed systems, LLM integration, memory and provenance, observability, and physics-grounded simulation.
+Submit a plain-English engineering brief and NEXUS autonomously produces structured requirements, grounded research, physics-based design parameters, numerical simulation, multi-objective optimisation, and a final engineering report — all traceable through a full provenance audit trail. Supported domains: propulsion, heat transfer, structural analysis, and electronics cooling.
 
 ---
 

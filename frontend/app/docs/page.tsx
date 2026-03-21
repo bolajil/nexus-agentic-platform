@@ -10,14 +10,26 @@ const SECTIONS = [
     icon: '⬡',
     content: `NEXUS is a production-grade multi-agent AI platform for autonomous hardware engineering design.
 
-It demonstrates all key skills required for a Senior AI Engineer – Agentic Platform Lead role:
+Submit a plain-English engineering brief — NEXUS routes it through a 6-agent LangGraph pipeline
+and returns a fully compiled engineering report with design parameters, simulation results,
+optimisation outcomes, and parametric CAD geometry (STEP + STL).
+
+Core capabilities:
 • Multi-agent orchestration with LangGraph StateGraph
-• Distributed systems with Redis session persistence
-• RAG-powered knowledge retrieval with ChromaDB
-• Real-time SSE streaming for live pipeline visibility
-• Full provenance and audit trail for explainability
-• Physics-based simulation and multi-objective optimization
-• Docker-compose deployment with observability hooks`
+• Distributed session persistence with Redis
+• RAG-powered knowledge retrieval with ChromaDB (9 engineering reference docs)
+• Real-time Server-Sent Events (SSE) streaming — live pipeline visibility
+• Full provenance and audit trail for design explainability
+• Physics-based simulation (NumPy/SciPy) and multi-objective Pareto optimisation
+• Parametric CAD output via FreeCAD — STEP and STL downloadable from the session CAD tab
+• LLM observability via Langfuse — every agent span traced end-to-end
+• Security: rate limiting, HSTS, CSP, prompt injection guard
+
+Supported engineering domains:
+  propulsion          → De Laval convergent-divergent nozzle
+  heat_transfer       → Shell-and-tube heat exchanger
+  structural          → Al 6061-T6 cantilever bracket
+  electronics_cooling → Finned aluminium heatsink`
   },
   {
     id: 'pipeline',
@@ -138,37 +150,6 @@ Health Endpoints:
 Request timing:
   X-Process-Time-Ms header on every response`
   },
-  {
-    id: 'interview',
-    title: 'Interview Talking Points',
-    icon: '★',
-    content: `Key narratives for Senior AI Engineer – Agentic Platform Lead:
-
-Q: How do you design a multi-agent system for reliability?
-A: "I use LangGraph's StateGraph so each agent has bounded responsibility and error
-   short-circuits route to END without affecting other sessions. State is persisted
-   to Redis after each node so partial results survive failures and can be replayed."
-
-Q: How do you ensure explainability?
-A: "Every agent appends a ProvenanceEntry with input summary, output summary, tools
-   used, confidence score, and duration. This creates a full audit trail the frontend
-   renders as a timeline — you can trace exactly why each design decision was made."
-
-Q: How do you handle agents that run simulations or external tools?
-A: "Each agent has access to domain-specific tools: physics simulation (NumPy/SciPy),
-   a calculator, and RAG retrieval. Tools are called with structured inputs and
-   return typed outputs, so the LLM parses reliable data rather than free text."
-
-Q: How do you stream results in real-time?
-A: "The pipeline runs as an asyncio background task. An SSEQueue bridges agent events
-   to a FastAPI StreamingResponse. The client receives agent_start, agent_complete,
-   and session_complete events as they fire — no polling required."
-
-Q: Describe your approach to scaling this system.
-A: "The stateless FastAPI workers read/write session state from Redis, so horizontal
-   scaling is trivial. LangGraph graphs can be distributed across worker processes.
-   For high-concurrency, each session gets its own asyncio task with bounded queues."`
-  },
 ];
 
 export default function DocsPage() {
@@ -181,7 +162,7 @@ export default function DocsPage() {
       <main className="ml-60 flex-1 p-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-white">Architecture Guide</h1>
-          <p className="text-slate-400 mt-1 text-sm">Reference documentation for interview preparation and platform understanding</p>
+          <p className="text-slate-400 mt-1 text-sm">Reference documentation for platform architecture and engineering design</p>
         </div>
 
         <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
