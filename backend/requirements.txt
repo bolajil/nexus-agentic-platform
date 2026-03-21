@@ -54,6 +54,11 @@ slowapi==0.1.9             # Rate limiting for FastAPI
 pymupdf==1.24.14          # PDF text extraction (fitz)
 python-docx==1.1.2        # DOCX extraction
 
+# ── Authentication ─────────────────────────────────────────────────────────────
+python-jose[cryptography]==3.3.0   # JWT creation and verification (HS256)
+passlib[bcrypt]==1.7.4             # Password hashing (bcrypt)
+email-validator==2.1.1             # Pydantic EmailStr validation
+
 # ── Hybrid Search ──────────────────────────────────────────────────────────────
 rank-bm25==0.2.2           # BM25Okapi keyword search for engineering terminology
 

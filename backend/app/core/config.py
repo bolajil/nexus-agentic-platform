@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     )
     MAX_AGENT_RETRIES: int = Field(default=2, description="Maximum agent retry attempts")
 
+    # ── Auth ──────────────────────────────────────────────────────────────
+    JWT_SECRET_KEY: str = Field(
+        default="nexus-dev-secret-change-in-production-min-32-chars",
+        description="Secret key for signing JWT access tokens",
+    )
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = Field(
         default=["http://localhost:3002", "http://localhost:3000"]
