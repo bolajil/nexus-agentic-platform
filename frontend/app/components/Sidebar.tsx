@@ -5,12 +5,13 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
 
 const NAV = [
-  { href: '/',           label: 'Mission Control', icon: '⬡' },
-  { href: '/sessions',   label: 'Sessions',         icon: '◈' },
-  { href: '/knowledge',  label: 'Knowledge Base',   icon: '◉' },
-  { href: '/tools',      label: 'Tool Connections', icon: '⚙' },
-  { href: '/provenance', label: 'Provenance',        icon: '◎' },
-  { href: '/docs',       label: 'Architecture',      icon: '◇' },
+  { href: '/',              label: 'Mission Control', icon: '⬡' },
+  { href: '/sessions',      label: 'Sessions',         icon: '◈' },
+  { href: '/knowledge',     label: 'Knowledge Base',   icon: '◉' },
+  { href: '/tools',         label: 'Tool Connections', icon: '⚙' },
+  { href: '/integrations',  label: 'Integrations',     icon: '⇄' },
+  { href: '/provenance',    label: 'Provenance',        icon: '◎' },
+  { href: '/docs',          label: 'Architecture',      icon: '◇' },
 ];
 
 function UserInitials({ name }: { name: string }) {

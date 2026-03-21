@@ -5,6 +5,8 @@ import Sidebar from './components/Sidebar';
 import AnoAI from '@/components/ui/animated-shader-background';
 import AgentPipeline, { AgentStep, AgentStatus } from './components/AgentPipeline';
 import DesignDiagram from './components/DesignDiagram';
+import ShareModal from './components/ShareModal';
+import ReviewPanel from './components/ReviewPanel';
 
 const AGENT_META: Record<string, { label: string; subtitle: string; icon: string }> = {
   requirements: { label: 'Requirements Engineer', subtitle: 'Parses brief → domain, constraints, targets', icon: '📋' },
@@ -41,6 +43,7 @@ export default function MissionControl() {
   const [report, setReport] = useState<Record<string, string> | null>(null);
   const [sessionData, setSessionData] = useState<Record<string, unknown> | null>(null);
   const [events, setEvents] = useState<string[]>([]);
+  const [showShare, setShowShare] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const userIdRef = useRef<string>('');
 
@@ -365,17 +368,25 @@ export default function MissionControl() {
                     )}
                   </div>
 
-                  <button
-                    onClick={() => {
-                      const el = document.createElement('a');
-                      el.href = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(report, null, 2))}`;
-                      el.download = `nexus-report-${Date.now()}.json`;
-                      el.click();
-                    }}
-                    className="mt-4 text-xs px-4 py-2 rounded-lg border border-indigo-500/30 text-indigo-400 hover:bg-indigo-900/20 transition-colors"
-                  >
-                    ↓ Export JSON
-                  </button>
+                  <div className="flex gap-3 mt-4">
+                    <button
+                      onClick={() => {
+                        const el = document.createElement('a');
+                        el.href = `data:text/json;charset=utf-8,${encodeURIComponent(JSON.stringify(report, null, 2))}`;
+                        el.download = `nexus-report-${Date.now()}.json`;
+                        el.click();
+                      }}
+                      className="text-xs px-4 py-2 rounded-lg border border-indigo-500/30 text-indigo-400 hover:bg-indigo-900/20 transition-colors"
+                    >
+                      ↓ Export JSON
+                    </button>
+                    <button
+                      onClick={() => setShowShare(true)}
+                      className="text-xs px-4 py-2 rounded-lg border border-purple-500/30 text-purple-400 hover:bg-purple-900/20 transition-colors"
+                    >
+                      ↗ Share for Review
+                    </button>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -395,6 +406,13 @@ export default function MissionControl() {
                     optimizedParams={sessionData.optimized_params as Record<string, unknown>}
                   />
                 </motion.div>
+              )}
+            </AnimatePresence>
+
+            {/* Team Review Panel — appears once pipeline is complete */}
+            <AnimatePresence>
+              {sessionId && !running && (
+                <ReviewPanel sessionId={sessionId} />
               )}
             </AnimatePresence>
 
@@ -429,6 +447,15 @@ export default function MissionControl() {
           </div>
         </div>
       </main>
+
+      {/* Share modal — portal-like, rendered outside the grid */}
+      {showShare && sessionId && (
+        <ShareModal
+          sessionId={sessionId}
+          sessionName={sessionName || sessionId}
+          onClose={() => setShowShare(false)}
+        />
+      )}
     </div>
   );
 }

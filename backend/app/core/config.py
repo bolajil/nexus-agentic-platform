@@ -68,6 +68,12 @@ class Settings(BaseSettings):
         description="Secret key for signing JWT access tokens",
     )
 
+    # ── Integrations / Notifications ──────────────────────────────────────
+    NEXUS_APP_URL: str = Field(
+        default="http://localhost:3002",
+        description="Public frontend URL used in notification deep-links",
+    )
+
     # ── CORS ──────────────────────────────────────────────────────────────
     CORS_ORIGINS: list[str] = Field(
         default=["http://localhost:3002", "http://localhost:3000"]
@@ -94,3 +100,4 @@ Settings.cors_origins = property(lambda self: self.CORS_ORIGINS)
 Settings.app_version = property(lambda self: self.APP_VERSION)
 Settings.app_name = property(lambda self: self.APP_NAME)
 Settings.otlp_endpoint = property(lambda self: self.OTEL_EXPORTER_OTLP_ENDPOINT)
+Settings.nexus_app_url = property(lambda self: self.NEXUS_APP_URL)

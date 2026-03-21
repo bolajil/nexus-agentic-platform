@@ -192,10 +192,14 @@ def create_app() -> FastAPI:
     from app.routers.health import router as health_router
     from app.routers.sessions import router as sessions_router
     from app.routers.auth import router as auth_router
+    from app.routers.integrations import router as integrations_router
+    from app.routers.reviews import router as reviews_router
 
     app.include_router(health_router)
     app.include_router(auth_router)           # /api/auth/*
     app.include_router(sessions_router, prefix="/api/v1")
+    app.include_router(integrations_router)   # /api/v1/integrations/*
+    app.include_router(reviews_router)        # /api/v1/reviews/*
 
     try:
         from app.routers.knowledge import router as knowledge_router
