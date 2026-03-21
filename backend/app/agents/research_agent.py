@@ -227,12 +227,13 @@ def _build_search_queries(domain: str, objective: str, targets: dict) -> list[st
 
 
 async def _safe_rag_search(query: str, domain: str, k: int = 4) -> list[dict]:
-    """Safely invoke RAG search, returning empty list on failure."""
+    """Safely invoke hybrid RAG search (BM25 + semantic), returning empty list on failure."""
     try:
         from app.tools.rag_tool import _vector_store_manager
         if _vector_store_manager is None:
             return []
-        results = _vector_store_manager.similarity_search(query=query, k=k, filter_domain=domain)
+        # Use hybrid_search for better retrieval of engineering terminology
+        results = _vector_store_manager.hybrid_search(query=query, k=k, filter_domain=domain)
         return results
     except Exception as e:
         logger.warning(f"RAG search failed for '{query}': {e}")
