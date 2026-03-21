@@ -244,6 +244,53 @@ nexus-agentic-platform/
 
 ---
 
+## CAD Integration & 3D Viewer
+
+The **Design Agent** calls FreeCAD headlessly via subprocess to generate parametric STEP and STL files from pipeline outputs. The STL is streamed to a Three.js WebGL viewer (drag-to-rotate) in the browser CAD tab.
+
+### Current default — Free / Demo
+
+**FreeCAD 1.0** · Open-source, Python-scriptable, runs headlessly via `FreeCADCmd.exe`.
+
+- Download free: [freecad.org](https://www.freecad.org)
+- Installer: `FreeCAD_1.0.2-conda-Windows-x86_64-installer-1.exe`
+- Connect path in Tool Connections: `C:\Program Files\FreeCAD 1.0\bin\FreeCADCmd.exe`
+- Supported domains: propulsion (De Laval nozzle), structural (L-bracket), heat transfer (shell-and-tube HX), electronics cooling (finned heatsink)
+- Limitation: ASCII STL output (~7 MB), primitive CSG geometry only
+
+### Production Upgrade Path
+
+The `generate_cad()` function in `backend/app/tools/freecad_tool.py` can be replaced with any CAD tool that accepts parametric inputs and exports STEP/STL. The NEXUS Tool Connections page already includes connectors for SolidWorks REST Bridge and can be extended.
+
+#### General Mechanical / Sheet Metal
+
+| Tool | Best For | Cost |
+|---|---|---|
+| **SolidWorks** | Industry-standard mechanical/metal engineering — sheet metal, weldments, assemblies, BOM, fabrication drawings. Widely used in manufacturing. | ~$4,000/yr |
+| **Autodesk Fusion 360** ⭐ Recommended | Best value. Sheet metal, CAM machining, stress simulation, cloud collaboration. REST API available for programmatic model generation. Free for hobbyists/startups. | ~$680/yr |
+| **Autodesk Inventor** | Deep AutoCAD integration, strong parametric metal components. | ~$2,500/yr |
+
+> **Recommendation:** **Fusion 360** is the best starting point — it covers 3D modelling, sheet metal, FEA simulation, and CNC machining in one package at a reasonable price. Its REST API can replace the FreeCAD subprocess integration for production deployments.
+
+#### Specialised for Structural Steel
+
+| Tool | Best For |
+|---|---|
+| **Tekla Structures** | Large structural steel and construction projects — BIM, fabrication drawings, IFC export |
+| **Advance Steel** (Autodesk) | Steel fabrication tightly integrated with AutoCAD |
+| **IDEA StatiCa** | Steel connection design and finite-element analysis |
+
+> For structural steel frames, beams, and connections (e.g. the bracket use case), **Tekla Structures** or **Advance Steel** produces fabrication-ready output that goes directly to the shop floor.
+
+#### Free / Open-Source Alternatives
+
+| Tool | Notes |
+|---|---|
+| **FreeCAD** | Default used in NEXUS. Open source, Python-scriptable, STEP/STL export. Good for demo and prototyping. |
+| **Onshape** | Browser-based, free tier, parametric modelling, REST API — viable drop-in replacement with no local install. |
+
+---
+
 ## Agent Pipeline — Deep Dive
 
 ### Agent 1: Requirements Engineer
