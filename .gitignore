@@ -29,3 +29,9 @@ frontend/node_modules/
 # Data (don't commit vector store data)
 backend/data/
 chroma_data/
+
+# CAD output files (generated per session, not for repo)
+backend/cad_output/
+
+# Private interview prep & training materials (local only — never push)
+_interview_prep/
