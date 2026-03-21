@@ -121,17 +121,21 @@ async def create_session(
     # Falls back to the anonymous localStorage UUID sent in X-User-ID.
     user_id = None
     try:
-        from app.core.auth_utils import decode_access_token, get_user_by_id
+        from app.core.auth_utils import decode_access_token
         auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             payload = decode_access_token(auth_header[7:])
-            user = get_user_by_id(payload["sub"])
-            if user:
-                user_id = f"{user['name']} <{user['email']}>"
-    except Exception:
-        pass
+            # Extract user info directly from JWT (no DB lookup needed)
+            name = payload.get("name", "Unknown")
+            email = payload.get("email", "")
+            if email:
+                user_id = f"{name} <{email}>"
+                logger.info(f"[{session_id}] User from JWT: {user_id}")
+    except Exception as e:
+        logger.debug(f"[{session_id}] JWT extraction failed: {e}")
     if not user_id:
         user_id = request.headers.get("X-User-ID") or session_id
+        logger.info(f"[{session_id}] Using fallback user_id: {user_id}")
 
     # Langfuse: track session creation event
     try:
@@ -252,3 +256,5 @@ async def get_provenance(
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return session.get("provenance_chain", [])
+
+
