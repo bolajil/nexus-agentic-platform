@@ -2,6 +2,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Sidebar from './components/Sidebar';
+import AnoAI from '@/components/ui/animated-shader-background';
 import AgentPipeline, { AgentStep, AgentStatus } from './components/AgentPipeline';
 import DesignDiagram from './components/DesignDiagram';
 
@@ -154,9 +155,15 @@ export default function MissionControl() {
 
   return (
     <div className="flex min-h-screen">
+      {/* Animated shader background */}
+      <div className="fixed inset-0 z-0">
+        <AnoAI />
+      </div>
+      <div className="fixed inset-0 z-0 bg-black/60" />
+
       <Sidebar />
 
-      <main className="ml-60 flex-1 p-8 max-w-[1400px]">
+      <main className="relative z-10 ml-60 flex-1 p-8 max-w-[1400px]">
         {/* Header */}
         <div className="mb-8">
           <motion.h1
