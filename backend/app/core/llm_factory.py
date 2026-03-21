@@ -122,6 +122,7 @@ def create_llm(config: "Settings", temperature: float = 0.1):
         model=config.MODEL_NAME,
         temperature=temperature,
         openai_api_key=config.OPENAI_API_KEY,
+        stream_usage=True,  # Required for token tracking in Langfuse
     )
 
 
@@ -183,3 +184,4 @@ def flush_langfuse():
             logger.info("Langfuse flushed")
         except Exception:
             pass
+
