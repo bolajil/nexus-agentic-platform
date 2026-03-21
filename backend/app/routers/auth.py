@@ -69,10 +69,11 @@ class RefreshRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token:  str
-    refresh_token: str
-    token_type:    str = "bearer"
-    user:          dict
+    access_token:         str
+    refresh_token:        str
+    token_type:           str  = "bearer"
+    user:                 dict
+    force_password_change: bool = False
 
 
 class UserResponse(BaseModel):
@@ -92,6 +93,7 @@ def _issue_tokens(user: dict) -> TokenResponse:
     return TokenResponse(
         access_token=access,
         refresh_token=refresh,
+        force_password_change=bool(user.get("force_password_change", False)),
         user={
             "id":    user["id"],
             "name":  user["name"],
@@ -183,3 +185,45 @@ async def me(current_user: dict = Depends(get_current_user)):
         role=current_user["role"],
         created_at=current_user["created_at"],
     )
+
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password:     str
+
+    @field_validator("new_password")
+    @classmethod
+    def new_password_strength(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("New password must be at least 8 characters")
+        return v
+
+
+@router.post("/change-password", status_code=status.HTTP_200_OK)
+async def change_password(
+    body: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    """
+    Change the authenticated user's password.
+    Clears the force_password_change flag on success.
+    """
+    if not verify_password(body.current_password, current_user["hashed_password"]):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+    if body.current_password == body.new_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New password must be different from the current password",
+        )
+
+    updated = {
+        **current_user,
+        "hashed_password":       hash_password(body.new_password),
+        "force_password_change": False,
+    }
+    store_user(updated)
+    logger.info(f"Password changed for: {current_user['email']}")
+    return {"message": "Password updated successfully"}

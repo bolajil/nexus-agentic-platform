@@ -118,6 +118,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.warning(f"Tool auto-connect startup failed: {e}")
 
+    # ── Seed default admin account ────────────────────────────────────
+    try:
+        from app.core.auth_utils import create_admin_user
+        create_admin_user()
+    except Exception as e:
+        logger.warning(f"Admin seed failed: {e}")
+
     logger.info("NEXUS Platform ready — all systems nominal")
     yield
 

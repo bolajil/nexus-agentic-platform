@@ -10,11 +10,12 @@ interface User {
 }
 
 interface AuthContextType {
-  user:     User | null;
-  loading:  boolean;
-  login:    (email: string, password: string) => Promise<void>;
-  register: (name: string, email: string, password: string) => Promise<void>;
-  logout:   () => void;
+  user:           User | null;
+  loading:        boolean;
+  login:          (email: string, password: string) => Promise<void>;
+  register:       (name: string, email: string, password: string) => Promise<void>;
+  logout:         () => void;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -43,7 +44,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(JSON.parse(stored));
       }
     } catch {
-      // corrupted storage — clear it
       localStorage.removeItem('nexus_user');
       localStorage.removeItem('nexus_access_token');
       localStorage.removeItem('nexus_refresh_token');
@@ -60,11 +60,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(data.user);
   };
 
-  const _authFetch = async (path: string, body: object) => {
+  const _authFetch = async (path: string, body: object, token?: string) => {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API}${path}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+      method: 'POST',
+      headers,
+      body:   JSON.stringify(body),
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail ?? 'Request failed');
@@ -74,7 +76,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(async (email: string, password: string) => {
     const data = await _authFetch('/api/auth/login', { email, password });
     _saveSession(data);
-    router.push('/');
+    // If the account requires a password change on first login, redirect there
+    if (data.force_password_change) {
+      router.push('/change-password');
+    } else {
+      router.push('/');
+    }
   }, [router]);
 
   const register = useCallback(async (name: string, email: string, password: string) => {
@@ -86,7 +93,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(() => {
     const refresh = localStorage.getItem('nexus_refresh_token');
     if (refresh) {
-      // fire-and-forget: invalidate server-side refresh token
       fetch(`${API}/api/auth/logout`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -101,8 +107,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     router.push('/login');
   }, [router]);
 
+  const changePassword = useCallback(async (currentPassword: string, newPassword: string) => {
+    const token = localStorage.getItem('nexus_access_token');
+    await _authFetch(
+      '/api/auth/change-password',
+      { current_password: currentPassword, new_password: newPassword },
+      token ?? undefined,
+    );
+    router.push('/');
+  }, [router]);
+
   return (
-    <AuthContext.Provider value={{ user, loading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loading, login, register, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

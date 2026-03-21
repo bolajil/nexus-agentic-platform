@@ -130,6 +130,29 @@ _mem_users_by_id:    dict[str, dict] = {}
 _mem_refresh:        dict[str, str]  = {}
 
 
+def create_admin_user() -> None:
+    """
+    Seed the default admin account if it doesn't already exist.
+    Called once at application startup.
+    """
+    import uuid
+    from datetime import datetime
+    email = "admin@nexus.ai"
+    if get_user_by_email(email):
+        return  # already exists
+    admin = {
+        "id":                    str(uuid.uuid4()),
+        "name":                  "NEXUS Admin",
+        "email":                 email,
+        "hashed_password":       hash_password("123password"),
+        "role":                  "admin",
+        "created_at":            datetime.utcnow().isoformat(),
+        "force_password_change": True,
+    }
+    store_user(admin)
+    logger.info("Default admin account created: admin@nexus.ai (password change required on first login)")
+
+
 def store_user(user: dict) -> None:
     """Persist a user dict keyed by email and id."""
     import json
