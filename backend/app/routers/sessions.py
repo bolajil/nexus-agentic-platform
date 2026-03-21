@@ -120,22 +120,23 @@ async def create_session(
     # Prefer the authenticated user (from JWT) for Langfuse user tracking.
     # Falls back to the anonymous localStorage UUID sent in X-User-ID.
     user_id = None
+    auth_header = request.headers.get("Authorization", "")
+    logger.info(f"[{session_id}] Auth header: {auth_header[:50] if auth_header else 'NONE'}")
     try:
         from app.core.auth_utils import decode_access_token
-        auth_header = request.headers.get("Authorization", "")
         if auth_header.startswith("Bearer "):
             payload = decode_access_token(auth_header[7:])
-            # Extract user info directly from JWT (no DB lookup needed)
+            logger.info(f"[{session_id}] JWT payload: name={payload.get('name')}, email={payload.get('email')}")
             name = payload.get("name", "Unknown")
             email = payload.get("email", "")
             if email:
                 user_id = f"{name} <{email}>"
                 logger.info(f"[{session_id}] User from JWT: {user_id}")
     except Exception as e:
-        logger.debug(f"[{session_id}] JWT extraction failed: {e}")
+        logger.warning(f"[{session_id}] JWT extraction failed: {e}")
     if not user_id:
         user_id = request.headers.get("X-User-ID") or session_id
-        logger.info(f"[{session_id}] Using fallback user_id: {user_id}")
+        logger.warning(f"[{session_id}] FALLBACK user_id: {user_id}")
 
     # Langfuse: track session creation event
     try:
@@ -256,5 +257,6 @@ async def get_provenance(
     if session is None:
         raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
     return session.get("provenance_chain", [])
+
 
 

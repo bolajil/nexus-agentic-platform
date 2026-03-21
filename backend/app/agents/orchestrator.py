@@ -157,18 +157,18 @@ class NEXUSOrchestrator:
         """Lazily initialise and return the Langfuse v3 client."""
         if self._lf is not None:
             return self._lf
-        pk = getattr(self.config, 'LANGFUSE_PUBLIC_KEY', None)
-        sk = getattr(self.config, 'LANGFUSE_SECRET_KEY', None)
+        import os
+        # Try config first, then environment variables
+        pk = getattr(self.config, 'LANGFUSE_PUBLIC_KEY', None) or os.getenv('LANGFUSE_PUBLIC_KEY')
+        sk = getattr(self.config, 'LANGFUSE_SECRET_KEY', None) or os.getenv('LANGFUSE_SECRET_KEY')
+        host = getattr(self.config, 'LANGFUSE_HOST', None) or os.getenv('LANGFUSE_HOST', 'https://cloud.langfuse.com')
         if not (pk and sk):
+            logger.warning("Langfuse keys not found in config or environment")
             return None
         try:
             from langfuse import Langfuse  # type: ignore
-            self._lf = Langfuse(
-                public_key=pk,
-                secret_key=sk,
-                host=getattr(self.config, 'LANGFUSE_HOST', 'https://cloud.langfuse.com'),
-            )
-            logger.info("Langfuse tracking enabled")
+            self._lf = Langfuse(public_key=pk, secret_key=sk, host=host)
+            logger.info(f"Langfuse tracking enabled (host={host})")
         except Exception as exc:
             logger.warning(f"Langfuse init failed: {exc}")
         return self._lf
