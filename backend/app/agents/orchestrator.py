@@ -303,27 +303,16 @@ class NEXUSOrchestrator:
         user_id = user_id or session_id
 
         # ── Langfuse root TRACE for the entire pipeline ────────────────────────
-        # Must use lf.trace() (not lf.start_span()) so Langfuse v3 correctly
-        # attributes token costs and rolls them up under this root trace.
+        # Langfuse v4: Callbacks handle tracing automatically via env vars
         lf = self._get_langfuse()
         lf_root_trace = None
-        lf_trace_id   = None
+        lf_trace_id   = session_id  # Use session_id as trace correlation
         try:
             if lf is not None:
-                lf_root_trace = lf.trace(
-                    name="nexus-pipeline",
-                    user_id=user_id,
-                    session_id=session_id,
-                    input={"brief": brief[:200]},
-                    metadata={
-                        "mode": "langgraph" if self._graph else "sequential",
-                    },
-                    tags=["nexus", getattr(self.config, 'APP_ENV', 'development')],
-                )
-                lf_trace_id = lf_root_trace.id
-                logger.info(f"[{session_id}] Langfuse root trace created: {lf_trace_id} user={user_id}")
+                # V4: Just log that we're starting - callbacks handle actual tracing
+                logger.info(f"[{session_id}] Langfuse v4 enabled for pipeline user={user_id}")
         except Exception as lf_err:
-            logger.warning(f"[{session_id}] Langfuse trace init failed: {lf_err}")
+            logger.warning(f"[{session_id}] Langfuse init failed: {lf_err}")
 
         # Inject trace context into state — agents read these to nest their LLM
         # generations under the root trace, which makes costs roll up correctly.
@@ -495,9 +484,13 @@ class NEXUSOrchestrator:
 
         state = initial_state
 
-        for agent_name, agent_fn in agent_funcs:
+        for idx, (agent_name, agent_fn) in enumerate(agent_funcs):
             if state.get("error"):
                 break
+
+            # Rate limit protection: 3s delay between agents (skip first)
+            if idx > 0:
+                await asyncio.sleep(3.0)
 
             # Langfuse: open agent span
             agent_span = self._lf_span(lf, f"agent:{agent_name}", session_id, {

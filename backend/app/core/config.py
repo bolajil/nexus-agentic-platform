@@ -19,7 +19,7 @@ class Settings(BaseSettings):
 
     # ── LLM ──────────────────────────────────────────────────────────────
     OPENAI_API_KEY: str = Field(default="", description="OpenAI API key")
-    MODEL_NAME: str = Field(default="gpt-4o", description="LLM model name")
+    MODEL_NAME: str = Field(default="gpt-4o-mini", description="LLM model name (gpt-4o-mini has higher rate limits)")
     EMBEDDING_MODEL: str = Field(
         default="text-embedding-3-small", description="Embedding model name"
     )

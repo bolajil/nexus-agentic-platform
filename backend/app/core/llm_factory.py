@@ -116,13 +116,20 @@ def _register_model_prices(pk: str, sk: str, host: str) -> None:
 
 
 def create_llm(config: "Settings", temperature: float = 0.1):
-    """Return a ChatOpenAI instance configured from Settings."""
+    """Return a ChatOpenAI instance configured from Settings with retry logic."""
     from langchain_openai import ChatOpenAI
+    
+    # Force gpt-4o-mini (200k TPM) - gpt-4o has only 30k TPM which is too low
+    model = "gpt-4o-mini"
+    logger.info(f"Creating LLM with model={model}")
+    
     return ChatOpenAI(
-        model=config.MODEL_NAME,
+        model=model,
         temperature=temperature,
         openai_api_key=config.OPENAI_API_KEY,
         stream_usage=True,  # Required for token tracking in Langfuse
+        max_retries=10,     # More retries for rate limits
+        request_timeout=120, # 2min timeout per request
     )
 
 
@@ -136,39 +143,41 @@ def get_callbacks(
     """
     Return a list of LangChain callbacks for the current invocation.
 
-    Uses langfuse v3 langchain integration (langfuse.langchain.CallbackHandler).
-    Passing trace_id nests each LLM generation under the root nexus-pipeline trace
-    so token usage and costs roll up correctly in the Langfuse dashboard.
+    Uses langfuse v4 langchain integration (langfuse.langchain.CallbackHandler).
+    V4 reads keys from environment variables automatically.
     """
-    lf = _get_langfuse_client(config)
-    if lf is None:
-        return []
-
     pk = getattr(config, 'LANGFUSE_PUBLIC_KEY', None)
     sk = getattr(config, 'LANGFUSE_SECRET_KEY', None)
+    if not (pk and sk):
+        return []
+
     host = getattr(config, 'LANGFUSE_HOST', 'https://cloud.langfuse.com')
 
     try:
-        # langfuse v3: CallbackHandler reads keys from env vars
+        # langfuse v4: Set env vars for automatic config
         import os
-        os.environ.setdefault("LANGFUSE_PUBLIC_KEY", pk)
-        os.environ.setdefault("LANGFUSE_SECRET_KEY", sk)
-        os.environ.setdefault("LANGFUSE_HOST", host)
+        os.environ["LANGFUSE_PUBLIC_KEY"] = pk
+        os.environ["LANGFUSE_SECRET_KEY"] = sk
+        os.environ["LANGFUSE_HOST"] = host
+        
+        # V4 uses metadata for session/user tracking
+        os.environ["LANGFUSE_TRACING_ENABLED"] = "true"
 
         from langfuse.langchain import CallbackHandler  # type: ignore
 
-        kwargs = dict(
-            session_id=session_id,
-            user_id=user_id or session_id,
-            trace_name=trace_name,
-            tags=["nexus", getattr(config, 'APP_ENV', 'development')],
-        )
-        # If trace_id is provided, nest this generation under the root pipeline trace
-        if trace_id:
-            kwargs["trace_id"] = trace_id
-
-        handler = CallbackHandler(**kwargs)
-        logger.info(f"[{session_id}] Langfuse callback attached: {trace_name} (trace={trace_id})")
+        # V4 CallbackHandler - simpler API, uses env vars
+        handler = CallbackHandler()
+        
+        # Set trace context via metadata if available
+        if hasattr(handler, 'set_trace_params'):
+            handler.set_trace_params(
+                session_id=session_id,
+                user_id=user_id or session_id,
+                name=trace_name,
+                tags=["nexus", getattr(config, 'APP_ENV', 'development')],
+            )
+        
+        logger.info(f"[{session_id}] Langfuse v4 callback attached: {trace_name}")
         return [handler]
     except Exception as exc:
         logger.warning(f"[{session_id}] Langfuse langchain handler failed: {exc}")

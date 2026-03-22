@@ -88,26 +88,17 @@ async def langfuse_ping():
 
     try:
         from langfuse import Langfuse  # type: ignore
-        lf = Langfuse(
-            public_key=pk,
-            secret_key=sk,
-            host=getattr(settings, 'LANGFUSE_HOST', 'https://cloud.langfuse.com'),
-        )
-        trace = lf.trace(
-            name="nexus-ping",
-            session_id="ping-test",
-            user_id="system",
-            tags=["nexus", "ping"],
-            metadata={"source": "health-endpoint"},
-        )
-        # Add a test span so it's clearly visible in Langfuse
-        span = trace.span(name="connection-test", metadata={"msg": "NEXUS → Langfuse OK"})
-        span.end()
-        lf.flush()
+        import os
+        os.environ["LANGFUSE_PUBLIC_KEY"] = pk
+        os.environ["LANGFUSE_SECRET_KEY"] = sk
+        os.environ["LANGFUSE_HOST"] = getattr(settings, 'LANGFUSE_HOST', 'https://cloud.langfuse.com')
+        
+        lf = Langfuse()
+        # V4: Simple auth check - just verify connection works
+        auth_result = lf.auth_check()
         return {
-            "status": "ok",
-            "trace_id": trace.id,
-            "message": "Trace sent — check Langfuse dashboard Tracing section now",
+            "status": "ok" if auth_result else "auth_failed",
+            "message": "Langfuse v4 connection verified" if auth_result else "Auth failed",
         }
     except Exception as exc:
         return {"status": "error", "detail": str(exc)}

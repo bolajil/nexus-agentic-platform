@@ -399,34 +399,36 @@ class NEXUSReadOnlyUser(HttpUser):
 
 
 # ── Staged Load Profile (Production) ──────────────────────────────────────────
-
-class ProductionLoadProfile(LoadTestShape):
-    """
-    Production load profile with staged ramp-up:
-      0-2 min:  Ramp to 20 users
-      2-5 min:  Ramp to 50 users
-      5-10 min: Sustain 50 users (steady state)
-      10-12 min: Ramp to 100 users (peak)
-      12-15 min: Sustain 100 users
-      15-17 min: Cool down to 20 users
-      17-18 min: Complete
-    """
-    stages = [
-        {"duration": 120, "users": 20, "spawn_rate": 2},
-        {"duration": 300, "users": 50, "spawn_rate": 3},
-        {"duration": 600, "users": 50, "spawn_rate": 5},
-        {"duration": 720, "users": 100, "spawn_rate": 5},
-        {"duration": 900, "users": 100, "spawn_rate": 5},
-        {"duration": 1020, "users": 20, "spawn_rate": 5},
-        {"duration": 1080, "users": 0, "spawn_rate": 5},
-    ]
-
-    def tick(self):
-        run_time = self.get_run_time()
-        for stage in self.stages:
-            if run_time < stage["duration"]:
-                return (stage["users"], stage["spawn_rate"])
-        return None
+# Uncomment the class below to use automated staged load profile
+# (Note: This disables manual user/rate input in the UI)
+#
+# class ProductionLoadProfile(LoadTestShape):
+#     """
+#     Production load profile with staged ramp-up:
+#       0-2 min:  Ramp to 20 users
+#       2-5 min:  Ramp to 50 users
+#       5-10 min: Sustain 50 users (steady state)
+#       10-12 min: Ramp to 100 users (peak)
+#       12-15 min: Sustain 100 users
+#       15-17 min: Cool down to 20 users
+#       17-18 min: Complete
+#     """
+#     stages = [
+#         {"duration": 120, "users": 20, "spawn_rate": 2},
+#         {"duration": 300, "users": 50, "spawn_rate": 3},
+#         {"duration": 600, "users": 50, "spawn_rate": 5},
+#         {"duration": 720, "users": 100, "spawn_rate": 5},
+#         {"duration": 900, "users": 100, "spawn_rate": 5},
+#         {"duration": 1020, "users": 20, "spawn_rate": 5},
+#         {"duration": 1080, "users": 0, "spawn_rate": 5},
+#     ]
+#
+#     def tick(self):
+#         run_time = self.get_run_time()
+#         for stage in self.stages:
+#             if run_time < stage["duration"]:
+#                 return (stage["users"], stage["spawn_rate"])
+#         return None
 
 
 # ── Locust Event Hooks ────────────────────────────────────────────────────────
@@ -469,7 +471,6 @@ def on_test_stop(environment, **kwargs):
     print(f"  Total requests: {stats.num_requests:,}")
     print(f"  Failures:       {stats.num_failures:,} ({error_rate*100:.2f}%)")
     print(f"  RPS (avg):      {stats.total_rps:.1f}")
-    print(f"  RPS (peak):     {stats.max_rps:.1f}")
     print("-"*70)
     print("  Latency:")
     print(f"    P50:          {stats.get_response_time_percentile(0.50):.0f} ms")
