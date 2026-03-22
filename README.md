@@ -12,6 +12,8 @@ Submit a plain-English engineering brief and NEXUS autonomously produces structu
 |---|---|---|
 | Frontend | `http://localhost:3002` | Mission Control UI |
 | Backend API | `http://localhost:8003/docs` | FastAPI Swagger docs |
+| Locust | `http://localhost:8089` | Load testing dashboard |
+| Langfuse | `https://cloud.langfuse.com` | LLM observability |
 | Health | `http://localhost:8003/health` | Liveness probe |
 | Readiness | `http://localhost:8003/ready` | Redis + API key check |
 
@@ -82,7 +84,7 @@ Submit a plain-English engineering brief and NEXUS autonomously produces structu
 | **ChromaDB** | 0.5.23 | Vector knowledge base (RAG) |
 | **Redis** | 7 | Session persistence (7-day TTL) |
 | **NumPy + SciPy** | 2.x / 1.14 | Physics simulation + optimisation |
-| **Langfuse** | 3.7.0 | LLM observability — traces every agent + LLM call |
+| **Langfuse** | 4.0.1 | LLM observability — traces every agent + LLM call |
 | **slowapi** | 0.1.9 | Rate limiting (100 req/min per IP) |
 | **structlog** | 24.4 | Structured JSON logging |
 | **OpenTelemetry** | 1.28 | Distributed tracing (OTLP) |
@@ -505,7 +507,8 @@ python scripts/seed_knowledge_base.py
 
 | Variable | Required | Default | Description |
 |---|---|---|---|
-| `OPENAI_API_KEY` | ✅ Yes | — | GPT-4o API access |
+| `OPENAI_API_KEY` | ✅ Yes | — | OpenAI API access |
+| `MODEL_NAME` | No | `gpt-4o-mini` | LLM model (gpt-4o-mini has 200k TPM) |
 | `REDIS_URL` | No | `redis://localhost:6379` | Session store URL |
 | `CHROMA_HOST` | No | `localhost` | ChromaDB host |
 | `CHROMA_PORT` | No | `8000` | ChromaDB port (internal) |
@@ -522,18 +525,28 @@ python scripts/seed_knowledge_base.py
 
 ## Observability
 
-### Langfuse LLM Tracing (v3)
+### Langfuse LLM Tracing (v4)
 Every pipeline run is traced end-to-end in [Langfuse](https://cloud.langfuse.com):
-- **Root span:** `nexus-pipeline` — covers the full 6-agent run, tagged with `session_id` and `user_id`
-- **Agent spans:** `agent:requirements` → `agent:report` — one span per agent with confidence score, duration, and tools used
 - **LLM generations:** each `ainvoke` call is automatically captured via `langfuse.langchain.CallbackHandler`
-- **User tracking:** frontend generates a persistent `userId` in `localStorage` → sent as `X-User-ID` header → stored on every Langfuse span
+- **User tracking:** frontend generates a persistent `userId` in `localStorage` → sent as `X-User-ID` header
+- **Environment-based config:** Langfuse v4 reads keys from environment variables automatically
 
 Diagnose the connection at runtime:
 ```bash
-curl http://localhost:8003/api/v1/langfuse/status
-# → {"auth_check":"OK","span_sent":true,"langfuse_module":"3.7.0"}
+curl http://localhost:8003/api/v1/langfuse/ping
+# → {"status":"ok","message":"Langfuse v4 connection verified"}
 ```
+
+### Load Testing (Locust)
+Production load testing with [Locust](https://locust.io/) v2.43:
+```bash
+cd backend
+locust -f tests/locustfile.py --host http://localhost:8003
+```
+- **Web UI:** http://localhost:8089
+- **User types:** Authenticated, Engineer, ReadOnly, ErrorTester
+- **Metrics:** RPS, P50/P95/P99 latency, error rates, SLO checks
+- **Headless mode:** `locust --headless -u 10 -r 2 --run-time 60s`
 
 ### Security
 All responses include hardened HTTP headers:
