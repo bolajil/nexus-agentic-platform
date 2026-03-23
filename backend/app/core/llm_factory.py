@@ -128,9 +128,28 @@ def create_llm(config: "Settings", temperature: float = 0.1):
         temperature=temperature,
         openai_api_key=config.OPENAI_API_KEY,
         stream_usage=True,  # Required for token tracking in Langfuse
-        max_retries=10,     # More retries for rate limits
-        request_timeout=120, # 2min timeout per request
+        max_retries=15,     # More retries for rate limits
+        request_timeout=180, # 3min timeout per request
+        max_tokens=2000,    # Limit output tokens to reduce usage
     )
+
+
+# Simple response cache to reduce API calls
+_response_cache: dict[str, str] = {}
+
+
+def get_cached_response(cache_key: str) -> str | None:
+    """Get a cached LLM response if available."""
+    return _response_cache.get(cache_key)
+
+
+def set_cached_response(cache_key: str, response: str) -> None:
+    """Cache an LLM response. Limit cache size to 100 entries."""
+    if len(_response_cache) > 100:
+        # Remove oldest entries (simple FIFO)
+        oldest_key = next(iter(_response_cache))
+        del _response_cache[oldest_key]
+    _response_cache[cache_key] = response
 
 
 def get_callbacks(
