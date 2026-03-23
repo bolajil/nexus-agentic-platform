@@ -229,6 +229,13 @@ def create_app() -> FastAPI:
     except Exception as e:
         logger.warning(f"CAD router unavailable: {e}")
 
+    try:
+        from app.routers.feedback import router as feedback_router
+        app.include_router(feedback_router, prefix="/api/v1")
+        logger.info("Human feedback/grader router registered")
+    except Exception as e:
+        logger.warning(f"Feedback router unavailable: {e}")
+
     # ── Global Exception Handlers ──────────────────────────────────────
     @app.exception_handler(Exception)
     async def global_exception_handler(request, exc):

@@ -207,3 +207,44 @@ class KnowledgeStats(BaseModel):
     collections: list[str]
     domains: list[str]
     last_updated: Optional[datetime] = None
+
+
+# ── Human Feedback / Grader Models ───────────────────────────────────────────
+
+class FeedbackScore(int, Enum):
+    """Human feedback score (thumbs up/down)."""
+    THUMBS_DOWN = 0
+    THUMBS_UP = 1
+
+
+class FeedbackCreate(BaseModel):
+    """Request to submit human feedback on a session or agent output."""
+    
+    session_id: str = Field(description="Session ID to provide feedback on")
+    score: FeedbackScore = Field(description="1 = thumbs up, 0 = thumbs down")
+    agent_name: Optional[str] = Field(default=None, description="Specific agent to rate (optional)")
+    comment: Optional[str] = Field(default=None, description="Optional text feedback")
+    user_id: Optional[str] = Field(default=None, description="User providing feedback")
+
+
+class FeedbackResponse(BaseModel):
+    """Response after submitting feedback."""
+    
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    session_id: str
+    score: FeedbackScore
+    agent_name: Optional[str] = None
+    comment: Optional[str] = None
+    user_id: Optional[str] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    langfuse_score_id: Optional[str] = Field(default=None, description="Langfuse score ID if synced")
+
+
+class FeedbackStats(BaseModel):
+    """Aggregated feedback statistics."""
+    
+    total_feedback: int = 0
+    thumbs_up: int = 0
+    thumbs_down: int = 0
+    approval_rate: float = Field(default=0.0, ge=0.0, le=1.0)
+    by_agent: dict[str, dict[str, int]] = Field(default_factory=dict)
