@@ -44,6 +44,8 @@ export default function MissionControl() {
   const [sessionData, setSessionData] = useState<Record<string, unknown> | null>(null);
   const [events, setEvents] = useState<string[]>([]);
   const [showShare, setShowShare] = useState(false);
+  const [feedback, setFeedback] = useState<'up' | 'down' | null>(null);
+  const [feedbackSubmitting, setFeedbackSubmitting] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
   const userIdRef = useRef<string>('');
 
@@ -61,6 +63,22 @@ export default function MissionControl() {
     setSteps(prev => prev.map(s => s.id === agentId ? { ...s, ...patch } : s));
   }, []);
 
+  const submitFeedback = async (type: 'up' | 'down') => {
+    if (!sessionId || feedbackSubmitting) return;
+    setFeedbackSubmitting(true);
+    try {
+      const endpoint = type === 'up' ? 'thumbs-up' : 'thumbs-down';
+      await fetch(`/api/feedback/${endpoint}/${sessionId}?user_id=${userIdRef.current}`, {
+        method: 'POST',
+      });
+      setFeedback(type);
+    } catch (err) {
+      console.error('Feedback failed:', err);
+    } finally {
+      setFeedbackSubmitting(false);
+    }
+  };
+
   const run = async () => {
     if (!brief.trim() || running) return;
 
@@ -71,6 +89,7 @@ export default function MissionControl() {
     setEvents([]);
     setRunning(true);
     setSessionId(null);
+    setFeedback(null);
 
     abortRef.current = new AbortController();
 
@@ -370,7 +389,7 @@ export default function MissionControl() {
                     )}
                   </div>
 
-                  <div className="flex gap-3 mt-4">
+                  <div className="flex gap-3 mt-4 flex-wrap">
                     <button
                       onClick={() => {
                         const el = document.createElement('a');
@@ -388,6 +407,43 @@ export default function MissionControl() {
                     >
                       ↗ Share for Review
                     </button>
+                    
+                    {/* Thumbs Up/Down Feedback */}
+                    <div className="flex gap-2 ml-auto">
+                      <button
+                        onClick={() => submitFeedback('up')}
+                        disabled={feedbackSubmitting || feedback !== null}
+                        className={`text-xl px-3 py-1.5 rounded-lg border transition-all ${
+                          feedback === 'up'
+                            ? 'border-emerald-500 bg-emerald-900/30 text-emerald-400'
+                            : feedback === 'down'
+                            ? 'border-slate-700 text-slate-600 cursor-not-allowed'
+                            : 'border-slate-600 text-slate-400 hover:border-emerald-500/50 hover:text-emerald-400 hover:bg-emerald-900/20'
+                        }`}
+                        title="This was helpful"
+                      >
+                        👍
+                      </button>
+                      <button
+                        onClick={() => submitFeedback('down')}
+                        disabled={feedbackSubmitting || feedback !== null}
+                        className={`text-xl px-3 py-1.5 rounded-lg border transition-all ${
+                          feedback === 'down'
+                            ? 'border-red-500 bg-red-900/30 text-red-400'
+                            : feedback === 'up'
+                            ? 'border-slate-700 text-slate-600 cursor-not-allowed'
+                            : 'border-slate-600 text-slate-400 hover:border-red-500/50 hover:text-red-400 hover:bg-red-900/20'
+                        }`}
+                        title="This needs improvement"
+                      >
+                        👎
+                      </button>
+                      {feedback && (
+                        <span className="text-[10px] text-slate-500 self-center ml-1">
+                          Thanks for your feedback!
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </motion.div>
               )}
