@@ -123,8 +123,46 @@ def _refresh_key(token: str) -> str:
     return f"nexus:refresh:{token}"
 
 
-# ── In-memory fallback (dev/demo when Redis is unavailable) ──────────────────
+# ── SQLite fallback (persists across restarts when Redis is unavailable) ─────
 
+import sqlite3
+import os
+
+_db_path = os.path.join(os.path.dirname(__file__), "..", "..", "data", "users.db")
+_db_conn = None
+
+def _get_db():
+    """Get SQLite connection for user persistence."""
+    global _db_conn
+    if _db_conn is not None:
+        return _db_conn
+    try:
+        os.makedirs(os.path.dirname(_db_path), exist_ok=True)
+        conn = sqlite3.connect(_db_path, check_same_thread=False)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id TEXT PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                data TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS refresh_tokens (
+                token TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                expires_at INTEGER NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email)")
+        conn.commit()
+        _db_conn = conn
+        logger.info(f"SQLite user store initialized: {_db_path}")
+        return conn
+    except Exception as e:
+        logger.warning(f"SQLite init failed: {e}")
+        return None
+
+# In-memory fallback (only if SQLite also fails)
 _mem_users_by_email: dict[str, dict] = {}
 _mem_users_by_id:    dict[str, dict] = {}
 _mem_refresh:        dict[str, str]  = {}
@@ -161,9 +199,22 @@ def store_user(user: dict) -> None:
         payload = json.dumps(user)
         r.set(_user_key_by_email(user["email"]), payload)
         r.set(_user_key_by_id(user["id"]), payload)
-    else:
-        _mem_users_by_email[user["email"].lower()] = user
-        _mem_users_by_id[user["id"]] = user
+        return
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        payload = json.dumps(user)
+        db.execute(
+            "INSERT OR REPLACE INTO users (id, email, data) VALUES (?, ?, ?)",
+            (user["id"], user["email"].lower(), payload)
+        )
+        db.commit()
+        return
+    
+    # In-memory fallback (last resort)
+    _mem_users_by_email[user["email"].lower()] = user
+    _mem_users_by_id[user["id"]] = user
 
 
 def get_user_by_email(email: str) -> Optional[dict]:
@@ -172,6 +223,14 @@ def get_user_by_email(email: str) -> Optional[dict]:
     if r:
         raw = r.get(_user_key_by_email(email.lower()))
         return json.loads(raw) if raw else None
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        cur = db.execute("SELECT data FROM users WHERE email = ?", (email.lower(),))
+        row = cur.fetchone()
+        return json.loads(row[0]) if row else None
+    
     return _mem_users_by_email.get(email.lower())
 
 
@@ -181,23 +240,56 @@ def get_user_by_id(user_id: str) -> Optional[dict]:
     if r:
         raw = r.get(_user_key_by_id(user_id))
         return json.loads(raw) if raw else None
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        cur = db.execute("SELECT data FROM users WHERE id = ?", (user_id,))
+        row = cur.fetchone()
+        return json.loads(row[0]) if row else None
+    
     return _mem_users_by_id.get(user_id)
 
 
 def store_refresh_token(token: str, user_id: str) -> None:
+    import time
     r = _redis()
     ttl = REFRESH_TOKEN_EXPIRE_DAYS * 86400
     if r:
         r.setex(_refresh_key(token), ttl, user_id)
-    else:
-        _mem_refresh[token] = user_id
+        return
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        expires_at = int(time.time()) + ttl
+        db.execute(
+            "INSERT OR REPLACE INTO refresh_tokens (token, user_id, expires_at) VALUES (?, ?, ?)",
+            (token, user_id, expires_at)
+        )
+        db.commit()
+        return
+    
+    _mem_refresh[token] = user_id
 
 
 def get_refresh_token_owner(token: str) -> Optional[str]:
+    import time
     r = _redis()
     if r:
         val = r.get(_refresh_key(token))
-        return val.decode() if val else None
+        return val if val else None  # decode_responses=True means val is already str
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        cur = db.execute(
+            "SELECT user_id FROM refresh_tokens WHERE token = ? AND expires_at > ?",
+            (token, int(time.time()))
+        )
+        row = cur.fetchone()
+        return row[0] if row else None
+    
     return _mem_refresh.get(token)
 
 
@@ -205,8 +297,16 @@ def delete_refresh_token(token: str) -> None:
     r = _redis()
     if r:
         r.delete(_refresh_key(token))
-    else:
-        _mem_refresh.pop(token, None)
+        return
+    
+    # SQLite fallback
+    db = _get_db()
+    if db:
+        db.execute("DELETE FROM refresh_tokens WHERE token = ?", (token,))
+        db.commit()
+        return
+    
+    _mem_refresh.pop(token, None)
 
 
 # ── FastAPI dependency: require authenticated user ────────────────────────────
