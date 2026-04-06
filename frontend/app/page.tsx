@@ -7,6 +7,7 @@ import AgentPipeline, { AgentStep, AgentStatus } from './components/AgentPipelin
 import DesignDiagram from './components/DesignDiagram';
 import ShareModal from './components/ShareModal';
 import ReviewPanel from './components/ReviewPanel';
+import CADEngineToggle, { CADEngine } from './components/CADEngineToggle';
 
 const AGENT_META: Record<string, { label: string; subtitle: string; icon: string }> = {
   requirements: { label: 'Requirements Engineer', subtitle: 'Parses brief → domain, constraints, targets', icon: '📋' },
@@ -37,6 +38,7 @@ function makeSteps(): AgentStep[] {
 export default function MissionControl() {
   const [brief, setBrief] = useState('');
   const [sessionName, setSessionName] = useState('');
+  const [cadEngine, setCadEngine] = useState<CADEngine>('freecad');
   const [steps, setSteps] = useState<AgentStep[]>(makeSteps());
   const [running, setRunning] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -105,6 +107,7 @@ export default function MissionControl() {
         body: JSON.stringify({
           engineering_brief: brief,
           session_name: sessionName || undefined,
+          cad_engine: cadEngine,
         }),
         signal: abortRef.current.signal,
       });
@@ -223,6 +226,15 @@ export default function MissionControl() {
                 onChange={e => setSessionName(e.target.value)}
                 className="w-full mb-3 px-4 py-2.5 rounded-lg bg-[#0a0a1a] border border-[#2a2a4a] text-slate-300 placeholder-slate-600 text-sm focus:outline-none focus:border-indigo-500/60 transition-colors"
               />
+
+              {/* CAD Engine Toggle */}
+              <div className="mb-4">
+                <CADEngineToggle
+                  value={cadEngine}
+                  onChange={setCadEngine}
+                  disabled={running}
+                />
+              </div>
 
               <textarea
                 rows={6}

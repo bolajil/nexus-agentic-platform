@@ -215,6 +215,22 @@ def _extract_simulation_args(
             "material": _find_material(requirements.get("materials", ["steel"])),
             "beam_length_m": find_val(["length", "span"], 2.0),
         }
+    elif domain == "fluids":
+        return {
+            "flow_rate_m3_s": find_val(["flow_rate", "flow", "Q"], 0.01),
+            "pipe_diameter_m": find_val(["diameter", "pipe_diameter", "D"], 0.1),
+            "pipe_length_m": find_val(["length", "pipe_length", "L"], 100.0),
+            "fluid_type": "water",
+            "elevation_change_m": find_val(["elevation", "height", "head"], 0.0),
+        }
+    elif domain == "mechanisms":
+        return {
+            "input_torque_nm": find_val(["torque", "input_torque"], 50.0),
+            "input_speed_rpm": find_val(["speed", "rpm", "input_speed"], 1750.0),
+            "gear_ratio": find_val(["ratio", "gear_ratio"], 4.0),
+            "module_mm": find_val(["module", "tooth_size"], 2.0),
+            "gear_material": _find_material(requirements.get("materials", ["steel"])),
+        }
     return {}
 
 
@@ -248,6 +264,8 @@ def _run_simulation_directly(domain: str, args: dict) -> dict:
         rocket_nozzle_simulation,
         electronics_cooling_simulation,
         structural_stress_simulation,
+        pipe_flow_simulation,
+        gear_train_simulation,
     )
     import math
 
@@ -280,6 +298,22 @@ def _run_simulation_directly(domain: str, args: dict) -> dict:
                 material=args.get("material", "steel"),
                 beam_length_m=args.get("beam_length_m", 2.0),
                 moment_of_inertia_m4=I,
+            )
+        elif domain == "fluids":
+            return pipe_flow_simulation(
+                flow_rate_m3_s=args.get("flow_rate_m3_s", 0.01),
+                pipe_diameter_m=args.get("pipe_diameter_m", 0.1),
+                pipe_length_m=args.get("pipe_length_m", 100.0),
+                fluid_type=args.get("fluid_type", "water"),
+                elevation_change_m=args.get("elevation_change_m", 0.0),
+            )
+        elif domain == "mechanisms":
+            return gear_train_simulation(
+                input_torque_nm=args.get("input_torque_nm", 50.0),
+                input_speed_rpm=args.get("input_speed_rpm", 1750.0),
+                gear_ratio=args.get("gear_ratio", 4.0),
+                module_mm=args.get("module_mm", 2.0),
+                gear_material=args.get("gear_material", "steel"),
             )
     except Exception as e:
         logger.error(f"Direct simulation failed: {e}")

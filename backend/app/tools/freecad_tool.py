@@ -302,6 +302,146 @@ print("NEXUS_CAD_OK:arm={arm_len:.0f}mm_w={arm_w:.0f}mm_t={arm_t:.0f}mm_4bolts")
 """
 
 
+def _pipe_assembly_script(params: dict, out_step: str, out_stl: str) -> str:
+    """
+    Pipe section with flanges — represents a fluid flow component.
+    Generates a straight pipe with welded flanges on both ends.
+    """
+    p = params.get("primary_parameters", {})
+
+    pipe_d = _pval(p, ["pipe_diameter_m", "diameter"], 0.1) * 1000  # convert m to mm
+    pipe_len = _pval(p, ["pipe_length_m", "length"], 1.0) * 100    # scale for visualization (1m → 100mm)
+    pipe_len = min(pipe_len, 500)  # cap at 500mm for reasonable CAD
+
+    wall_t = max(3.0, pipe_d * 0.05)  # 5% wall thickness
+    outer_d = pipe_d + 2 * wall_t
+
+    # Flange dimensions
+    flange_d = outer_d * 1.8
+    flange_t = max(10.0, wall_t * 2)
+    bolt_circle_d = (outer_d + flange_d) / 2
+    num_bolts = 4 if pipe_d < 100 else 8
+    bolt_r = max(4.0, pipe_d * 0.04)
+
+    # Bolt hole positions
+    bolt_cuts = []
+    for i in range(num_bolts):
+        angle = i * 360 / num_bolts
+        x = bolt_circle_d / 2 * math.cos(math.radians(angle))
+        y = bolt_circle_d / 2 * math.sin(math.radians(angle))
+        bolt_cuts.append(f"    b{i}_1 = Part.makeCylinder({bolt_r:.2f}, {flange_t + 2:.2f}, "
+                         f"FreeCAD.Vector({x:.2f}, {y:.2f}, -1), FreeCAD.Vector(0, 0, 1)); "
+                         f"flange1 = flange1.cut(b{i}_1)")
+        bolt_cuts.append(f"    b{i}_2 = Part.makeCylinder({bolt_r:.2f}, {flange_t + 2:.2f}, "
+                         f"FreeCAD.Vector({x:.2f}, {y:.2f}, {pipe_len - 1:.2f}), FreeCAD.Vector(0, 0, 1)); "
+                         f"flange2 = flange2.cut(b{i}_2)")
+
+    bolt_code = "\n".join(bolt_cuts)
+
+    return f"""\
+import FreeCAD, Part
+doc = FreeCAD.newDocument("PipeAssembly")
+
+# Pipe body (hollow cylinder)
+outer_cyl = Part.makeCylinder({outer_d / 2:.2f}, {pipe_len:.2f})
+inner_cyl = Part.makeCylinder({pipe_d / 2:.2f}, {pipe_len + 2:.2f}, FreeCAD.Vector(0, 0, -1))
+pipe = outer_cyl.cut(inner_cyl)
+
+# Flange 1 (inlet)
+flange1 = Part.makeCylinder({flange_d / 2:.2f}, {flange_t:.2f})
+flange1_bore = Part.makeCylinder({pipe_d / 2:.2f}, {flange_t + 2:.2f}, FreeCAD.Vector(0, 0, -1))
+flange1 = flange1.cut(flange1_bore)
+{bolt_code.split("flange2")[0].rstrip()}
+
+# Flange 2 (outlet)
+flange2 = Part.makeCylinder({flange_d / 2:.2f}, {flange_t:.2f}, FreeCAD.Vector(0, 0, {pipe_len - flange_t:.2f}))
+flange2_bore = Part.makeCylinder({pipe_d / 2:.2f}, {flange_t + 2:.2f}, FreeCAD.Vector(0, 0, {pipe_len - flange_t - 1:.2f}))
+flange2 = flange2.cut(flange2_bore)
+
+assembly = pipe.fuse(flange1).fuse(flange2)
+obj = doc.addObject("Part::Feature", "PipeAssembly")
+obj.Shape = assembly
+doc.recompute()
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
+print("NEXUS_CAD_OK:pipe_D={pipe_d:.0f}mm_L={pipe_len:.0f}mm_{num_bolts}bolts")
+"""
+
+
+def _gear_train_script(params: dict, out_step: str, out_stl: str) -> str:
+    """
+    Spur gear pair — pinion and gear meshing.
+    Uses involute approximation via polygonal teeth.
+    """
+    p = params.get("primary_parameters", {})
+
+    module = _pval(p, ["module_mm", "module"], 2.0)
+    gear_ratio = _pval(p, ["gear_ratio", "ratio"], 4.0)
+
+    # Tooth counts
+    z_pinion = max(17, int(_pval(p, ["pinion_teeth"], 20)))
+    z_gear = int(z_pinion * gear_ratio)
+
+    # Pitch diameters
+    d_pinion = module * z_pinion
+    d_gear = module * z_gear
+
+    # Addendum and dedendum
+    ha = module          # addendum
+    hf = 1.25 * module   # dedendum
+
+    # Face width
+    face_w = max(8 * module, _pval(p, ["face_width_mm", "face_width"], 10 * module))
+
+    # Outer diameters
+    da_pinion = d_pinion + 2 * ha
+    da_gear = d_gear + 2 * ha
+
+    # Center distance
+    center_dist = (d_pinion + d_gear) / 2
+
+    # Shaft diameters (20% of pitch diameter)
+    shaft_d_pinion = max(5.0, d_pinion * 0.2)
+    shaft_d_gear = max(8.0, d_gear * 0.2)
+
+    return f"""\
+import FreeCAD, Part
+import math
+doc = FreeCAD.newDocument("GearTrain")
+
+# Simplified gear representation using cylinders with central bore
+# (Full involute profile requires Part.BSplineCurve which is complex)
+
+# Pinion (smaller gear)
+pinion_outer = Part.makeCylinder({da_pinion / 2:.2f}, {face_w:.2f})
+pinion_bore = Part.makeCylinder({shaft_d_pinion / 2:.2f}, {face_w + 2:.2f}, FreeCAD.Vector(0, 0, -1))
+pinion = pinion_outer.cut(pinion_bore)
+
+# Gear (larger gear) — offset by center distance
+gear_outer = Part.makeCylinder({da_gear / 2:.2f}, {face_w:.2f}, FreeCAD.Vector({center_dist:.2f}, 0, 0))
+gear_bore = Part.makeCylinder({shaft_d_gear / 2:.2f}, {face_w + 2:.2f}, FreeCAD.Vector({center_dist:.2f}, 0, -1))
+gear = gear_outer.cut(gear_bore)
+
+# Add keyways (rectangular slots)
+keyway_w = {shaft_d_pinion * 0.25:.2f}
+keyway_h = {shaft_d_pinion * 0.15:.2f}
+key1 = Part.makeBox(keyway_w, keyway_h, {face_w + 2:.2f}, FreeCAD.Vector(-keyway_w/2, {shaft_d_pinion / 2 - keyway_h:.2f}, -1))
+pinion = pinion.cut(key1)
+
+key2 = Part.makeBox({shaft_d_gear * 0.25:.2f}, {shaft_d_gear * 0.15:.2f}, {face_w + 2:.2f}, 
+       FreeCAD.Vector({center_dist - shaft_d_gear * 0.125:.2f}, {shaft_d_gear / 2 - shaft_d_gear * 0.15:.2f}, -1))
+gear = gear.cut(key2)
+
+assembly = pinion.fuse(gear)
+obj = doc.addObject("Part::Feature", "GearTrain")
+obj.Shape = assembly
+doc.recompute()
+Part.export([obj.Shape], "{_fwd(out_step)}")
+obj.Shape.exportStl("{_fwd(out_stl)}")
+print("NEXUS_CAD_OK:m={module:.1f}_z1={z_pinion}_z2={z_gear}_ratio={gear_ratio:.2f}")
+"""
+
+
 # ── Parameter helper ──────────────────────────────────────────────────────────
 
 def _pval(params: dict, keys: list[str], default: float) -> float:
@@ -328,12 +468,14 @@ def _pval(params: dict, keys: list[str], default: float) -> float:
 def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
     """
     Generate STEP and STL files for a given engineering domain + design params.
+    Also generates tolerance annotations (GD&T) as a JSON sidecar file.
 
     Returns:
         {
           "available": bool,
           "step_path": str | None,
           "stl_path":  str | None,
+          "tolerances_path": str | None,
           "domain":    str,
           "message":   str,
         }
@@ -344,6 +486,7 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
             "available": False,
             "step_path": None,
             "stl_path":  None,
+            "tolerances_path": None,
             "domain":    domain,
             "message":   "FreeCAD not found — install FreeCAD and connect it in the Tools page",
         }
@@ -353,13 +496,26 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     out_step = str(out_dir / "design.step")
     out_stl  = str(out_dir / "design.stl")
+    out_tol  = None
+
+    # Generate tolerance annotations (GD&T)
+    try:
+        from app.tools.tolerance_specs import generate_tolerances, save_tolerance_package
+        tol_pkg = generate_tolerances(session_id, domain, design_params)
+        tol_path = save_tolerance_package(tol_pkg, out_dir)
+        out_tol = str(tol_path)
+        logger.info(f"[{session_id}] Generated tolerance specs: {len(tol_pkg.critical_dimensions)} annotations")
+    except Exception as e:
+        logger.warning(f"[{session_id}] Failed to generate tolerances: {e}")
 
     # Pick script generator
     generators = {
-        "heat_transfer":    _heat_exchanger_script,
-        "propulsion":       _rocket_nozzle_script,
-        "structural":       _beam_script,
+        "heat_transfer":       _heat_exchanger_script,
+        "propulsion":          _rocket_nozzle_script,
+        "structural":          _beam_script,
         "electronics_cooling": _heatsink_script,
+        "fluids":              _pipe_assembly_script,
+        "mechanisms":          _gear_train_script,
     }
     gen_fn = generators.get(domain, _heat_exchanger_script)
     script_src = gen_fn(design_params, out_step, out_stl)
@@ -389,6 +545,7 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
                 "available": True,
                 "step_path": out_step if step_ok else None,
                 "stl_path":  out_stl  if stl_ok  else None,
+                "tolerances_path": out_tol,
                 "domain":    domain,
                 "message":   f"CAD generated — {stdout.split(chr(10))[-1][:80]}",
             }
@@ -397,6 +554,7 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
                 "available": False,
                 "step_path": None,
                 "stl_path":  None,
+                "tolerances_path": out_tol,
                 "domain":    domain,
                 "message":   f"FreeCAD ran but produced no output. {stdout[:200]}",
             }
@@ -406,6 +564,7 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
             "available": False,
             "step_path": None,
             "stl_path":  None,
+            "tolerances_path": out_tol,
             "domain":    domain,
             "message":   "FreeCAD script timed out (>60 s)",
         }
@@ -415,6 +574,7 @@ def generate_cad(session_id: str, domain: str, design_params: dict) -> dict:
             "available": False,
             "step_path": None,
             "stl_path":  None,
+            "tolerances_path": out_tol,
             "domain":    domain,
             "message":   str(exc),
         }

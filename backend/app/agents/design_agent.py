@@ -266,6 +266,22 @@ def _extract_design_params(text: str, computed_params: dict, domain: str, requir
         primary.setdefault("safety_factor", 2.5)
         primary.setdefault("cross_section_area_cm2", 25.0)
 
+    elif domain == "fluids":
+        primary.setdefault("flow_rate_m3_s", 0.01)
+        primary.setdefault("pipe_diameter_m", 0.1)
+        primary.setdefault("pipe_length_m", 100.0)
+        primary.setdefault("head_loss_m", 10.0)
+        secondary["fluid_type"] = "water"
+        secondary["pipe_material"] = "steel"
+
+    elif domain == "mechanisms":
+        primary.setdefault("input_torque_Nm", 50.0)
+        primary.setdefault("gear_ratio", 4.0)
+        primary.setdefault("input_speed_rpm", 1750.0)
+        primary.setdefault("module_mm", 2.0)
+        secondary["gear_material"] = "steel"
+        secondary["mechanism_type"] = "gear_train"
+
     equations = _domain_equations(domain)
     assumptions = [
         "Steady-state operating conditions assumed",

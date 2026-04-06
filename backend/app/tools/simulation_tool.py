@@ -529,7 +529,549 @@ def structural_stress_simulation(
     }
 
 
+# ── Fluid Dynamics Simulation ────────────────────────────────────────────────
+
+def pipe_flow_simulation(
+    flow_rate_m3_s: float,
+    pipe_diameter_m: float = 0.1,
+    pipe_length_m: float = 100.0,
+    fluid_type: str = "water",
+    pipe_roughness_m: float = 0.000045,  # Commercial steel
+    elevation_change_m: float = 0.0,
+    num_elbows: int = 0,
+    num_valves: int = 0,
+) -> dict[str, Any]:
+    """
+    Simulate pipe flow using Darcy-Weisbach equation and Colebrook-White friction factor.
+
+    Calculates: pressure drop, head loss, pump power required, velocity profile.
+
+    Uses:
+      ΔP = f·(L/D)·(ρV²/2)  — Darcy-Weisbach
+      1/√f = -2·log₁₀(ε/3.7D + 2.51/(Re·√f))  — Colebrook-White
+
+    Args:
+        flow_rate_m3_s: Volumetric flow rate (m³/s)
+        pipe_diameter_m: Internal pipe diameter (m)
+        pipe_length_m: Total pipe length (m)
+        fluid_type: Working fluid (water|oil|glycol|air)
+        pipe_roughness_m: Absolute pipe roughness ε (m)
+        elevation_change_m: Height change (positive = uphill)
+        num_elbows: Number of 90° elbows
+        num_valves: Number of gate valves
+    """
+    props = FLUID_PROPERTIES.get(fluid_type.lower(), FLUID_PROPERTIES["water"])
+    rho = props["density"]
+    mu = props["viscosity"]
+
+    # Cross-sectional area and velocity
+    A = math.pi * (pipe_diameter_m / 2) ** 2
+    V = flow_rate_m3_s / A
+
+    # Reynolds number
+    Re = rho * V * pipe_diameter_m / mu
+
+    # Friction factor via Colebrook-White (iterative)
+    epsilon = pipe_roughness_m
+    D = pipe_diameter_m
+
+    if Re < 2300:
+        # Laminar flow
+        f = 64.0 / max(Re, 1)
+        flow_regime = "laminar"
+    else:
+        # Turbulent — solve Colebrook-White iteratively
+        f = 0.02  # initial guess
+        for _ in range(50):
+            rhs = -2.0 * math.log10(epsilon / (3.7 * D) + 2.51 / (Re * math.sqrt(f)))
+            f_new = 1.0 / (rhs ** 2)
+            if abs(f_new - f) < 1e-8:
+                break
+            f = f_new
+        flow_regime = "turbulent"
+
+    # Major head loss (friction)
+    h_major = f * (pipe_length_m / D) * (V ** 2 / (2 * GRAVITY))
+
+    # Minor losses (fittings)
+    K_elbow = 0.9  # 90° elbow
+    K_valve = 0.2  # gate valve fully open
+    K_total = num_elbows * K_elbow + num_valves * K_valve
+    h_minor = K_total * (V ** 2 / (2 * GRAVITY))
+
+    # Total head loss
+    h_total = h_major + h_minor + elevation_change_m
+
+    # Pressure drop
+    delta_P = rho * GRAVITY * h_total
+
+    # Pump power required (assuming 75% pump efficiency)
+    pump_efficiency = 0.75
+    pump_power_w = (rho * GRAVITY * flow_rate_m3_s * h_total) / pump_efficiency
+
+    # Velocity profile (for turbulent pipe flow)
+    # u/u_max = (1 - r/R)^(1/n), n ≈ 7 for Re ~ 10^5
+    n_profile = 7.0 if Re > 1e5 else (6.0 if Re > 1e4 else 8.0)
+    u_max = V * (n_profile + 1) * (2 * n_profile + 1) / (2 * n_profile ** 2)
+
+    warnings = []
+    if V > 3.0 and fluid_type == "water":
+        warnings.append(f"High velocity {V:.2f} m/s may cause erosion in water pipes")
+    if Re > 2300 and Re < 4000:
+        warnings.append("Transitional flow regime — results have higher uncertainty")
+    if h_total < 0:
+        warnings.append("Negative head — flow is gravity-driven, no pump needed")
+    if delta_P > 1e6:
+        warnings.append("Very high pressure drop (>10 bar) — consider larger pipe diameter")
+
+    return {
+        "flow_rate_m3_s": flow_rate_m3_s,
+        "velocity_m_s": round(V, 4),
+        "reynolds_number": round(Re, 0),
+        "flow_regime": flow_regime,
+        "friction_factor": round(f, 6),
+        "major_head_loss_m": round(h_major, 3),
+        "minor_head_loss_m": round(h_minor, 3),
+        "total_head_loss_m": round(h_total, 3),
+        "pressure_drop_Pa": round(delta_P, 0),
+        "pressure_drop_bar": round(delta_P / 1e5, 4),
+        "pump_power_W": round(pump_power_w, 1),
+        "pump_power_kW": round(pump_power_w / 1000, 3),
+        "centerline_velocity_m_s": round(u_max, 4),
+        "pipe_diameter_m": pipe_diameter_m,
+        "pipe_length_m": pipe_length_m,
+        "warnings": warnings,
+    }
+
+
+def centrifugal_pump_simulation(
+    flow_rate_m3_s: float,
+    head_required_m: float,
+    impeller_diameter_m: float = 0.2,
+    rotational_speed_rpm: float = 1750.0,
+    fluid_type: str = "water",
+) -> dict[str, Any]:
+    """
+    Simulate centrifugal pump performance using affinity laws and specific speed.
+
+    Affinity Laws:
+      Q₂/Q₁ = N₂/N₁
+      H₂/H₁ = (N₂/N₁)²
+      P₂/P₁ = (N₂/N₁)³
+
+    Specific Speed: Ns = N·√Q / H^0.75  (characterizes pump type)
+
+    Args:
+        flow_rate_m3_s: Required flow rate (m³/s)
+        head_required_m: Total dynamic head (m)
+        impeller_diameter_m: Pump impeller diameter (m)
+        rotational_speed_rpm: Shaft speed (RPM)
+        fluid_type: Working fluid
+    """
+    props = FLUID_PROPERTIES.get(fluid_type.lower(), FLUID_PROPERTIES["water"])
+    rho = props["density"]
+
+    N = rotational_speed_rpm
+    Q = flow_rate_m3_s
+    H = head_required_m
+
+    # Specific speed (metric units: N in RPM, Q in m³/s, H in m)
+    Ns = N * math.sqrt(Q) / (H ** 0.75) if H > 0 else 0
+
+    # Classify pump type by specific speed
+    if Ns < 25:
+        pump_type = "radial_flow"
+        efficiency_base = 0.70
+    elif Ns < 75:
+        pump_type = "mixed_flow"
+        efficiency_base = 0.82
+    else:
+        pump_type = "axial_flow"
+        efficiency_base = 0.85
+
+    # Efficiency correction for size (larger pumps more efficient)
+    size_factor = min(1.0, 0.8 + 0.2 * (Q / 0.1))
+    eta_pump = efficiency_base * size_factor
+
+    # Hydraulic power
+    P_hydraulic = rho * GRAVITY * Q * H
+
+    # Shaft power
+    P_shaft = P_hydraulic / eta_pump
+
+    # Impeller tip speed
+    omega = N * 2 * math.pi / 60
+    u_tip = omega * impeller_diameter_m / 2
+
+    # Head coefficient (ψ = gH / u²)
+    psi = GRAVITY * H / (u_tip ** 2) if u_tip > 0 else 0
+
+    # Flow coefficient (φ = Q / (π·D²·u/4))
+    phi = Q / (math.pi * impeller_diameter_m ** 2 * u_tip / 4) if u_tip > 0 else 0
+
+    # NPSH required (approximate)
+    NPSH_r = 0.3 * (N / 1000) ** 1.5 * (Q * 1000) ** 0.5
+
+    warnings = []
+    if Ns < 10:
+        warnings.append("Very low specific speed — consider positive displacement pump")
+    if eta_pump < 0.6:
+        warnings.append(f"Low efficiency {eta_pump:.0%} — pump may be poorly matched to duty")
+    if u_tip > 40:
+        warnings.append(f"High tip speed {u_tip:.1f} m/s — cavitation and wear risk")
+    if psi > 1.2:
+        warnings.append("High head coefficient — check impeller design")
+
+    return {
+        "flow_rate_m3_s": Q,
+        "head_m": H,
+        "specific_speed_Ns": round(Ns, 2),
+        "pump_type": pump_type,
+        "efficiency": round(eta_pump, 4),
+        "hydraulic_power_W": round(P_hydraulic, 1),
+        "shaft_power_W": round(P_shaft, 1),
+        "shaft_power_kW": round(P_shaft / 1000, 3),
+        "impeller_tip_speed_m_s": round(u_tip, 2),
+        "head_coefficient_psi": round(psi, 4),
+        "flow_coefficient_phi": round(phi, 4),
+        "NPSH_required_m": round(NPSH_r, 2),
+        "rotational_speed_rpm": N,
+        "warnings": warnings,
+    }
+
+
+# ── Mechanisms Simulation ────────────────────────────────────────────────────
+
+def gear_train_simulation(
+    input_torque_nm: float,
+    input_speed_rpm: float,
+    gear_ratio: float,
+    module_mm: float = 2.0,
+    pressure_angle_deg: float = 20.0,
+    num_stages: int = 1,
+    gear_material: str = "steel",
+) -> dict[str, Any]:
+    """
+    Simulate spur gear train performance.
+
+    Calculates: output torque, output speed, efficiency, gear stresses, 
+    contact ratio, and face width requirements.
+
+    Lewis Equation for bending stress: σ = Ft / (b·m·Y)
+    Hertzian contact stress: σ_H = √(Ft·K / (b·d·I))
+
+    Args:
+        input_torque_nm: Input shaft torque (N·m)
+        input_speed_rpm: Input shaft speed (RPM)
+        gear_ratio: Total gear ratio (>1 = speed reduction)
+        module_mm: Gear module in mm (tooth size parameter)
+        pressure_angle_deg: Pressure angle (typically 20°)
+        num_stages: Number of gear stages
+        gear_material: Material (steel|bronze|nylon)
+    """
+    material_props = {
+        "steel": {"allowable_bending": 250e6, "allowable_contact": 1200e6, "efficiency": 0.98},
+        "bronze": {"allowable_bending": 80e6, "allowable_contact": 400e6, "efficiency": 0.95},
+        "nylon": {"allowable_bending": 40e6, "allowable_contact": 100e6, "efficiency": 0.92},
+    }
+
+    props = material_props.get(gear_material.lower(), material_props["steel"])
+    eta_stage = props["efficiency"]
+    sigma_allow_bend = props["allowable_bending"]
+    sigma_allow_contact = props["allowable_contact"]
+
+    # Total efficiency
+    eta_total = eta_stage ** num_stages
+
+    # Output calculations
+    output_speed_rpm = input_speed_rpm / gear_ratio
+    output_torque_nm = input_torque_nm * gear_ratio * eta_total
+
+    # Power
+    omega_in = input_speed_rpm * 2 * math.pi / 60
+    P_input = input_torque_nm * omega_in
+    P_output = P_input * eta_total
+
+    # Gear geometry (assuming single stage for stress calc)
+    m = module_mm / 1000  # convert to meters
+    phi = math.radians(pressure_angle_deg)
+
+    # Estimate pinion teeth for reasonable size
+    z_pinion = max(17, int(20 / math.sqrt(gear_ratio)))  # min teeth to avoid undercut
+    z_gear = int(z_pinion * gear_ratio)
+
+    # Pitch diameters
+    d_pinion = m * z_pinion
+    d_gear = m * z_gear
+
+    # Tangential force at pinion
+    Ft = 2 * input_torque_nm / d_pinion if d_pinion > 0 else 0
+
+    # Lewis form factor (approximate for 20° pressure angle)
+    Y = 0.154 - 0.912 / z_pinion
+
+    # Required face width from bending stress
+    # σ = Ft / (b·m·Y) → b = Ft / (σ·m·Y)
+    b_required = Ft / (sigma_allow_bend * m * Y) if (m * Y) > 0 else 0.01
+    b_recommended = max(b_required * 1.5, 8 * m)  # safety factor + min width
+
+    # Bending stress with recommended face width
+    sigma_bending = Ft / (b_recommended * m * Y) if (b_recommended * m * Y) > 0 else 0
+
+    # Contact ratio (should be > 1.2 for smooth operation)
+    # CR ≈ 1.88 - 3.2(1/z1 + 1/z2) for 20° PA
+    contact_ratio = 1.88 - 3.2 * (1/z_pinion + 1/z_gear)
+
+    # Pitch line velocity
+    v_pitch = d_pinion * omega_in / 2
+
+    warnings = []
+    if contact_ratio < 1.2:
+        warnings.append(f"Low contact ratio {contact_ratio:.2f} — gear noise likely")
+    if z_pinion < 17:
+        warnings.append("Pinion teeth < 17 — undercut will occur, use profile shift")
+    if v_pitch > 25:
+        warnings.append(f"High pitch velocity {v_pitch:.1f} m/s — precision gears required")
+    if sigma_bending > sigma_allow_bend * 0.8:
+        warnings.append("Bending stress approaching allowable — increase face width")
+
+    return {
+        "input_torque_Nm": input_torque_nm,
+        "input_speed_rpm": input_speed_rpm,
+        "output_torque_Nm": round(output_torque_nm, 3),
+        "output_speed_rpm": round(output_speed_rpm, 2),
+        "gear_ratio": gear_ratio,
+        "efficiency": round(eta_total, 4),
+        "input_power_W": round(P_input, 1),
+        "output_power_W": round(P_output, 1),
+        "pinion_teeth": z_pinion,
+        "gear_teeth": z_gear,
+        "pinion_diameter_mm": round(d_pinion * 1000, 2),
+        "gear_diameter_mm": round(d_gear * 1000, 2),
+        "tangential_force_N": round(Ft, 2),
+        "bending_stress_Pa": round(sigma_bending, 0),
+        "allowable_bending_Pa": sigma_allow_bend,
+        "face_width_required_mm": round(b_required * 1000, 2),
+        "face_width_recommended_mm": round(b_recommended * 1000, 2),
+        "contact_ratio": round(contact_ratio, 3),
+        "pitch_velocity_m_s": round(v_pitch, 2),
+        "module_mm": module_mm,
+        "warnings": warnings,
+    }
+
+
+def four_bar_linkage_simulation(
+    crank_length_m: float,
+    coupler_length_m: float,
+    rocker_length_m: float,
+    ground_length_m: float,
+    crank_speed_rpm: float = 60.0,
+    crank_angle_deg: float = 0.0,
+) -> dict[str, Any]:
+    """
+    Simulate four-bar linkage kinematics using Grashof criterion and position analysis.
+
+    Grashof Criterion: s + l ≤ p + q for continuous rotation
+    Position Analysis: Law of cosines for coupler and rocker angles
+
+    Args:
+        crank_length_m: Crank (input) link length (m)
+        coupler_length_m: Coupler (connecting) link length (m)
+        rocker_length_m: Rocker (output) link length (m)
+        ground_length_m: Ground (fixed) link length (m)
+        crank_speed_rpm: Crank rotational speed (RPM)
+        crank_angle_deg: Current crank angle from ground (degrees)
+    """
+    a = crank_length_m      # crank
+    b = coupler_length_m    # coupler
+    c = rocker_length_m     # rocker
+    d = ground_length_m     # ground
+
+    links = sorted([a, b, c, d])
+    s, p, q, l = links[0], links[1], links[2], links[3]
+
+    # Grashof criterion
+    is_grashof = (s + l) <= (p + q)
+
+    # Classify linkage type
+    if is_grashof:
+        if s == a:
+            linkage_type = "crank-rocker"
+        elif s == d:
+            linkage_type = "double-crank"
+        elif s == b:
+            linkage_type = "double-rocker"
+        else:
+            linkage_type = "crank-rocker"
+    else:
+        linkage_type = "triple-rocker"
+
+    # Position analysis at given crank angle
+    theta2 = math.radians(crank_angle_deg)
+    omega2 = crank_speed_rpm * 2 * math.pi / 60
+
+    # Solve for rocker angle (theta4) using loop closure
+    # Using complex number method
+    # d + c·e^(iθ4) = a·e^(iθ2) + b·e^(iθ3)
+
+    # Position of crank end (point B)
+    Bx = a * math.cos(theta2)
+    By = a * math.sin(theta2)
+
+    # Distance from B to rocker pivot (point D at origin shifted by d)
+    Dx = d
+    Dy = 0
+    BD = math.sqrt((Dx - Bx) ** 2 + (Dy - By) ** 2)
+
+    # Check if position is valid
+    if BD > (b + c) or BD < abs(b - c):
+        return {
+            "valid_position": False,
+            "error": "Linkage cannot reach this position — links cannot connect",
+            "crank_angle_deg": crank_angle_deg,
+            "linkage_type": linkage_type,
+            "is_grashof": is_grashof,
+            "warnings": ["Invalid position — crank angle outside working range"],
+        }
+
+    # Solve triangle BDC for angles
+    # cos(∠DBC) = (BD² + b² - c²) / (2·BD·b)
+    cos_DBC = (BD ** 2 + b ** 2 - c ** 2) / (2 * BD * b) if BD * b > 0 else 0
+    cos_DBC = max(-1, min(1, cos_DBC))  # clamp for numerical stability
+    angle_DBC = math.acos(cos_DBC)
+
+    # Angle from B to D
+    angle_BD = math.atan2(Dy - By, Dx - Bx)
+
+    # Coupler angle (two solutions — take the "open" configuration)
+    theta3 = angle_BD + angle_DBC
+
+    # Rocker angle
+    Cx = Bx + b * math.cos(theta3)
+    Cy = By + b * math.sin(theta3)
+    theta4 = math.atan2(Cy - Dy, Cx - Dx)
+
+    # Velocities (using velocity polygon method)
+    # ω3 and ω4 from velocity equations
+    # Simplified: ω4 ≈ (a/c) · sin(θ2-θ3)/sin(θ4-θ3) · ω2
+
+    denom = c * math.sin(theta4 - theta3)
+    if abs(denom) > 1e-9:
+        omega4 = (a * omega2 * math.sin(theta2 - theta3)) / denom
+        omega3 = (a * omega2 * math.sin(theta2 - theta4)) / (b * math.sin(theta3 - theta4))
+    else:
+        omega4 = 0
+        omega3 = 0
+
+    # Mechanical advantage (approximate)
+    mech_advantage = abs(omega2 / omega4) if abs(omega4) > 1e-9 else float('inf')
+
+    # Transmission angle (should be 40°-140° for good force transmission)
+    trans_angle = abs(math.degrees(theta3 - theta4))
+    if trans_angle > 90:
+        trans_angle = 180 - trans_angle
+
+    warnings = []
+    if not is_grashof:
+        warnings.append("Non-Grashof linkage — crank cannot make full rotation")
+    if trans_angle < 40:
+        warnings.append(f"Poor transmission angle {trans_angle:.1f}° — force transmission inefficient")
+    if abs(omega4) < 0.01 * abs(omega2):
+        warnings.append("Near toggle position — very high mechanical advantage but poor controllability")
+
+    return {
+        "valid_position": True,
+        "crank_angle_deg": crank_angle_deg,
+        "coupler_angle_deg": round(math.degrees(theta3), 2),
+        "rocker_angle_deg": round(math.degrees(theta4), 2),
+        "crank_angular_velocity_rad_s": round(omega2, 4),
+        "coupler_angular_velocity_rad_s": round(omega3, 4),
+        "rocker_angular_velocity_rad_s": round(omega4, 4),
+        "mechanical_advantage": round(mech_advantage, 3),
+        "transmission_angle_deg": round(trans_angle, 2),
+        "linkage_type": linkage_type,
+        "is_grashof": is_grashof,
+        "link_lengths_m": {
+            "crank": crank_length_m,
+            "coupler": coupler_length_m,
+            "rocker": rocker_length_m,
+            "ground": ground_length_m,
+        },
+        "coupler_point_x_m": round(Cx, 4),
+        "coupler_point_y_m": round(Cy, 4),
+        "warnings": warnings,
+    }
+
+
 # ── LangChain Tool Wrappers ───────────────────────────────────────────────────
+
+@tool
+def run_pipe_flow_simulation(
+    flow_rate_m3_s: float,
+    pipe_diameter_m: float = 0.1,
+    pipe_length_m: float = 100.0,
+    fluid_type: str = "water",
+    elevation_change_m: float = 0.0,
+) -> dict:
+    """
+    Simulate pipe flow using Darcy-Weisbach equation.
+    Returns pressure drop, head loss, pump power required, and flow regime.
+    """
+    return pipe_flow_simulation(
+        flow_rate_m3_s, pipe_diameter_m, pipe_length_m,
+        fluid_type, 0.000045, elevation_change_m, 0, 0
+    )
+
+
+@tool
+def run_pump_simulation(
+    flow_rate_m3_s: float,
+    head_required_m: float,
+    rotational_speed_rpm: float = 1750.0,
+    fluid_type: str = "water",
+) -> dict:
+    """
+    Simulate centrifugal pump performance using affinity laws.
+    Returns efficiency, shaft power, specific speed, and NPSH required.
+    """
+    return centrifugal_pump_simulation(
+        flow_rate_m3_s, head_required_m, 0.2, rotational_speed_rpm, fluid_type
+    )
+
+
+@tool
+def run_gear_train_simulation(
+    input_torque_nm: float,
+    input_speed_rpm: float,
+    gear_ratio: float,
+    module_mm: float = 2.0,
+    gear_material: str = "steel",
+) -> dict:
+    """
+    Simulate spur gear train performance.
+    Returns output torque/speed, efficiency, gear stresses, and sizing.
+    """
+    return gear_train_simulation(
+        input_torque_nm, input_speed_rpm, gear_ratio, module_mm, 20.0, 1, gear_material
+    )
+
+
+@tool
+def run_four_bar_linkage_simulation(
+    crank_length_m: float,
+    coupler_length_m: float,
+    rocker_length_m: float,
+    ground_length_m: float,
+    crank_speed_rpm: float = 60.0,
+) -> dict:
+    """
+    Simulate four-bar linkage kinematics.
+    Returns linkage type, angles, velocities, and mechanical advantage.
+    """
+    return four_bar_linkage_simulation(
+        crank_length_m, coupler_length_m, rocker_length_m, ground_length_m, crank_speed_rpm, 0.0
+    )
+
 
 @tool
 def run_heat_exchanger_simulation(
@@ -614,4 +1156,8 @@ SIMULATION_TOOLS = [
     run_rocket_nozzle_simulation,
     run_electronics_cooling_simulation,
     run_structural_stress_simulation,
+    run_pipe_flow_simulation,
+    run_pump_simulation,
+    run_gear_train_simulation,
+    run_four_bar_linkage_simulation,
 ]

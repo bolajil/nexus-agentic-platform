@@ -4,16 +4,16 @@
 @tailwind utilities;
 
 :root {
-  --surface-bg:     #0f0f23;
-  --surface-card:   #16162a;
-  --surface-border: #2a2a4a;
-  --surface-hover:  #1e1e38;
+  --surface-bg:     #121228;
+  --surface-card:   #1a1a35;
+  --surface-border: #3a3a5a;
+  --surface-hover:  #252545;
   --nexus-500:      #6366f1;
   --nexus-400:      #818cf8;
-  --nexus-glow:     rgba(99,102,241,0.4);
-  --text-primary:   #e2e8f0;
-  --text-secondary: #94a3b8;
-  --text-muted:     #64748b;
+  --nexus-glow:     rgba(99,102,241,0.5);
+  --text-primary:   #f1f5f9;
+  --text-secondary: #b8c5d6;
+  --text-muted:     #8896ab;
 }
 
 * { box-sizing: border-box; }

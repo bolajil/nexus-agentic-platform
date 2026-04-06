@@ -110,6 +110,8 @@ Return ONLY the JSON object described in your instructions. No markdown, no expl
                 "heat_transfer":      {"thermal_load_W": 5000.0, "effectiveness": 0.8},
                 "structural":         {"applied_force_N": 10000.0, "safety_factor_target": 2.5},
                 "electronics_cooling":{"power_W": 200.0, "max_junction_temp_C": 85.0},
+                "fluids":             {"flow_rate_m3_s": 0.01, "head_loss_m": 10.0, "pump_efficiency": 0.75},
+                "mechanisms":         {"input_torque_Nm": 50.0, "gear_ratio": 4.0, "output_speed_rpm": 500.0},
             }
             numeric_targets = _defaults.get(domain, {})
 

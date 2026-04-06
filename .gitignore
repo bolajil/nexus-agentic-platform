@@ -8,10 +8,16 @@ venv/
 dist/
 .pytest_cache/
 
-# Environment
+# Environment & Secrets (CRITICAL — never commit these)
 .env
+.env.local
+.env.production
+.env.*.local
 backend/.env
 frontend/.env.local
+*.pem
+*.key
+secrets/
 
 # Node
 node_modules/
@@ -35,3 +41,7 @@ backend/cad_output/
 
 # Private interview prep & training materials (local only — never push)
 _interview_prep/
+
+# OS files
+.DS_Store
+Thumbs.db
